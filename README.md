@@ -23,7 +23,13 @@ curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/init-k8
 sudo env CONTROL_PLANE_IP=192.168.10.232 bash init-k8s.sh
 ```
 
-Sets up Kubernetes with CRI-O and Cilium, configures `kubectl` for your user, and prints a worker join command. If an existing control plane is detected, type `y` or `yes` to continue; Enter cancels. Existing cluster state is not automatically reset, so `kubeadm init` may still reject an initialized node.
+Sets up Kubernetes with CRI-O and Cilium, configures `kubectl` for your user, and prints a worker join command. Existing Kubernetes files, etcd data, or occupied Kubernetes ports trigger a menu:
+
+- `repair`: preserve cluster data, restart services, skip `kubeadm init`, and reconcile the existing Cilium Helm release with its saved values. Requires the original control-plane configuration and PKI; does not recreate deleted files or migrate the API IP. Kubernetes packages stay at their installed versions.
+- `force`: type `RESET` to delete local cluster state (including local etcd) and create a new cluster. Existing workers must rejoin. Use only when rebuilding this node is intended.
+- Enter or any other input: cancel.
+
+If `/etc/kubernetes` was deleted, restore it from backup for repair, or choose `force` to rebuild.
 
 ## Prepare a worker
 
