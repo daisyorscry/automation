@@ -9,6 +9,35 @@ POD_CIDR="${POD_CIDR:-10.244.0.0/16}"
 CRIO_SOCKET="unix:///var/run/crio/crio.sock"
 
 log() { printf '\n==> %s\n' "$*"; }
+wait_for_api() {
+  local attempt
+  for ((attempt=0; attempt<30; attempt++)); do
+    if kubectl --request-timeout=5s get --raw=/readyz >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  echo 'API server is not ready. Inspect kubelet and CRI-O logs below.' >&2
+  return 1
+}
+
+refresh_cni_runtime() {
+  local attempt
+  log 'Wait for Cilium to write the local CNI configuration'
+  for ((attempt=0; attempt<60; attempt++)); do
+    [[ ! -s /etc/cni/net.d/05-cilium.conflist ]] || break
+    sleep 2
+  done
+  if [[ ! -s /etc/cni/net.d/05-cilium.conflist ]]; then
+    echo 'Cilium did not write /etc/cni/net.d/05-cilium.conflist; inspect the Cilium agent logs. Runtime was not restarted.' >&2
+    return 1
+  fi
+  log 'Restart CRI-O and kubelet to load the Cilium CNI configuration'
+  systemctl restart crio.service
+  systemctl restart kubelet.service
+  wait_for_api
+}
+
 CLUSTER_DIAGNOSTICS=false
 report_failure() {
   local status="$1" line="$2"
@@ -139,6 +168,7 @@ fi
 if [[ "$MODE" != repair ]]; then
   printf 'KUBELET_EXTRA_ARGS=--node-ip=%s\n' "$CONTROL_PLANE_IP" > /etc/default/kubelet
 fi
+install -d -m 0755 /etc/cni/net.d
 systemctl enable --now crio.service
 systemctl enable kubelet.service
 
@@ -159,12 +189,16 @@ if [[ "$MODE" == force ]]; then
   kubeadm reset --force --cri-socket "$CRIO_SOCKET"
   systemctl stop kubelet.service
   # Missing manifests can prevent kubeadm from discovering the old local etcd directory.
-  rm -rf -- /var/lib/etcd /etc/kubernetes /etc/cni/net.d /var/lib/cni
+  rm -rf -- /var/lib/etcd /etc/kubernetes /var/lib/cni
+  # Keep the watched directory itself; remove only the old CNI configuration.
+  install -d -m 0755 /etc/cni/net.d
+  find /etc/cni/net.d -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
   REMAINING_PORTS="$(ss -H -ltn 'sport = :6443 or sport = :10250 or sport = :10257 or sport = :10259 or sport = :2379 or sport = :2380')"
   if [[ -n "$REMAINING_PORTS" ]]; then
     echo 'Kubernetes ports are still occupied after reset. Inspect with ss -ltnp before retrying; no preflight checks were bypassed.' >&2
     exit 1
   fi
+  systemctl restart crio.service
   systemctl start kubelet.service
 fi
 
@@ -185,18 +219,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 CLUSTER_DIAGNOSTICS=true
 if [[ "$MODE" == repair ]]; then
   log 'Wait for the existing API server'
-  API_READY=false
-  for ((attempt=0; attempt<30; attempt++)); do
-    if kubectl --request-timeout=5s get --raw=/readyz >/dev/null 2>&1; then
-      API_READY=true
-      break
-    fi
-    sleep 2
-  done
-  if [[ "$API_READY" != true ]]; then
-    echo 'API server is not ready. Inspect: journalctl -u kubelet -n 100 --no-pager; repair has preserved cluster data.' >&2
-    exit 1
-  fi
+  wait_for_api
 fi
 
 log 'Configure kubeconfig for the invoking user'
@@ -225,6 +248,8 @@ else
     --set ipam.mode=cluster-pool \
     --set-json "ipam.operator.clusterPoolIPv4PodCIDRList=[\"$POD_CIDR\"]"
 fi
+
+refresh_cni_runtime
 
 log 'Worker join command (run on workers with sudo and append --cri-socket unix:///var/run/crio/crio.sock)'
 kubeadm token create --print-join-command
