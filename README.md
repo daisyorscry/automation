@@ -31,6 +31,8 @@ Sets up Kubernetes with CRI-O and Cilium, configures `kubectl` for your user, an
 
 If `/etc/kubernetes` was deleted, restore it from backup for repair, or choose `force` to rebuild.
 
+The worker join command is printed before readiness checks so workers can join while validation runs. Installation completes only after Cilium, nodes, and CoreDNS are ready. On validation errors, the script prints node taints, CoreDNS scheduling events, and local runtime logs to show the cause.
+
 ## Prepare a worker
 
 > **Destructive:** resets local Kubernetes state, including local etcd on a control plane. Only use on a node you intend to rebuild.

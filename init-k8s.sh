@@ -9,7 +9,27 @@ POD_CIDR="${POD_CIDR:-10.244.0.0/16}"
 CRIO_SOCKET="unix:///var/run/crio/crio.sock"
 
 log() { printf '\n==> %s\n' "$*"; }
-trap 'printf "\nERROR: Failed at line %s. Inspect the error above; do not blindly run kubeadm reset.\n" "$LINENO" >&2' ERR
+CLUSTER_DIAGNOSTICS=false
+report_failure() {
+  local status="$1" line="$2"
+  trap - ERR
+  printf '\nERROR: Failed at line %s (exit %s).\n' "$line" "$status" >&2
+  if [[ "$CLUSTER_DIAGNOSTICS" == true ]]; then
+    echo 'Cluster diagnostics (preserving current state):' >&2
+    kubectl --request-timeout=10s get nodes -o wide >&2 || true
+    kubectl --request-timeout=10s get nodes \
+      -o 'custom-columns=NAME:.metadata.name,TAINTS:.spec.taints' >&2 || true
+    kubectl --request-timeout=10s -n kube-system get pods -o wide >&2 || true
+    kubectl --request-timeout=10s -n kube-system describe pods -l k8s-app=kube-dns >&2 || true
+    kubectl --request-timeout=10s -n kube-system get events \
+      --field-selector type=Warning --sort-by=.lastTimestamp >&2 || true
+    ls -la /etc/cni/net.d/ >&2 || true
+    journalctl -u kubelet -u crio -n 50 --no-pager >&2 || true
+  fi
+  echo 'Inspect the error above; do not blindly run kubeadm reset.' >&2
+  exit "$status"
+}
+trap 'report_failure "$?" "$LINENO"' ERR
 
 if (( EUID != 0 )); then
   echo 'Run as root: sudo bash init-k8s.sh' >&2
@@ -162,6 +182,7 @@ else
 fi
 
 export KUBECONFIG=/etc/kubernetes/admin.conf
+CLUSTER_DIAGNOSTICS=true
 if [[ "$MODE" == repair ]]; then
   log 'Wait for the existing API server'
   API_READY=false
@@ -205,12 +226,15 @@ else
     --set-json "ipam.operator.clusterPoolIPv4PodCIDRList=[\"$POD_CIDR\"]"
 fi
 
-log 'Validate the cluster'
+log 'Worker join command (run on workers with sudo and append --cri-socket unix:///var/run/crio/crio.sock)'
+kubeadm token create --print-join-command
+
+log 'Validate Cilium, node readiness, and CoreDNS'
 kubectl -n kube-system rollout status daemonset/cilium --timeout=300s
 kubectl wait --for=condition=Ready node --all --timeout=300s
+kubectl -n kube-system rollout status deployment/coredns --timeout=300s
 kubectl get nodes -o wide
 kubectl get pods -n kube-system
 kubectl -n kube-system exec daemonset/cilium -- cilium-dbg status --verbose
 
-log 'Installation complete. Worker join command:'
-kubeadm token create --print-join-command
+log 'Installation complete: Cilium, nodes, and CoreDNS are ready.'
