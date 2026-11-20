@@ -23,7 +23,7 @@ curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/init-k8
 sudo env CONTROL_PLANE_IP=192.168.10.232 bash init-k8s.sh
 ```
 
-Sets up Kubernetes with CRI-O and Cilium, configures `kubectl` for your user, and prints a worker join command. Use a fresh node; an existing control plane is rejected.
+Sets up Kubernetes with CRI-O and Cilium, configures `kubectl` for your user, and prints a worker join command. If an existing control plane is detected, type `y` or `yes` to continue; Enter cancels. Existing cluster state is not automatically reset, so `kubeadm init` may still reject an initialized node.
 
 ## Prepare a worker
 

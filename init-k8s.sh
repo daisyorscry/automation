@@ -17,8 +17,14 @@ if (( EUID != 0 )); then
 fi
 
 if [[ -e /etc/kubernetes/admin.conf ]]; then
-  echo 'This node already has a Kubernetes control plane. Installation aborted to protect the existing cluster.' >&2
-  exit 1
+  echo 'This node already has a Kubernetes control plane.' >&2
+  echo 'Continuing will rerun installation steps; existing cluster state is not automatically reset.' >&2
+  answer=''
+  read -r -p 'Continue installation? [y/N]: ' answer || true
+  case "$answer" in
+    [yY]|[yY][eE][sS]) ;;
+    *) echo 'Installation cancelled.'; exit 0 ;;
+  esac
 fi
 
 if ! ip -4 -o addr show | grep -Fq " $CONTROL_PLANE_IP/"; then
