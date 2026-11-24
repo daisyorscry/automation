@@ -1,0 +1,5 @@
+service:
+  type: LoadBalancer
+  annotations:
+    metallb.io/address-pool: lan-pool
+    metallb.io/loadBalancerIPs: 192.168.10.10

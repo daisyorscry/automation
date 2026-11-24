@@ -65,6 +65,11 @@ if (( EUID != 0 )); then
   exit 1
 fi
 
+if [[ "${1:-}" == --with-istio ]]; then
+  ISTIO_INSTALLER="$(dirname -- "${BASH_SOURCE[0]}")/install-istio-gateway.sh"
+  bash "$ISTIO_INSTALLER" --check
+fi
+
 MODE=install
 HAS_KUBE_STATE=false
 for path in /etc/kubernetes/admin.conf /etc/kubernetes/kubelet.conf \
@@ -263,3 +268,7 @@ kubectl get pods -n kube-system
 kubectl -n kube-system exec daemonset/cilium -- cilium-dbg status --verbose
 
 log 'Installation complete: Cilium, nodes, and CoreDNS are ready.'
+
+if [[ "${1:-}" == --with-istio ]]; then
+  bash "$ISTIO_INSTALLER"
+fi
