@@ -4,18 +4,6 @@
 
 Bootstrap a Kubernetes control plane on Debian or Ubuntu with kubeadm, CRI-O, and Cilium. Choose Cilium Gateway API or Istio Gateway API with MetalLB for HTTPS ingress.
 
-## Start from the GitHub URL
-
-On each Debian or Ubuntu node, paste this block into Bash to fetch the scripts and manifests together into a temporary directory. Run the remaining commands from that shell.
-
-```bash
-setup_dir=$(mktemp -d) &&
-  (set -o pipefail
-   curl -fsSL https://github.com/daisyorscry/automation/archive/refs/heads/main.tar.gz |
-     tar -xz --strip-components=1 -C "$setup_dir") &&
-  cd "$setup_dir"
-```
-
 Replace `192.168.10.232` below with your control-plane node's IPv4 address.
 
 ## 1. Initialize the Kubernetes control plane
@@ -23,10 +11,18 @@ Replace `192.168.10.232` below with your control-plane node's IPv4 address.
 ### Cilium
 
 ```bash
-sudo env CONTROL_PLANE_IP=192.168.10.232 bash init-k8s.sh
+sudo env CONTROL_PLANE_IP=192.168.10.232 bash -c \
+  'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/init-k8s.sh) && bash -c "$script"'
 ```
 
 ### Istio and MetalLB
+
+Clone the repository once for Istio or either HTTPS Gateway installer. These installers use the manifests and helper scripts from the checkout.
+
+```bash
+git clone https://github.com/daisyorscry/automation.git
+cd automation
+```
 
 Set the LAN IP range in [metallb.yaml](manifests/istio-gateway-api/metallb.yaml), then run:
 
@@ -38,7 +34,7 @@ Both modes use Cilium for pod networking. For a single-node Istio cluster, add `
 
 ## 2. Install an HTTPS Gateway
 
-Choose the gateway that matches your setup. In its template folder, set the LAN IP and listener hostnames in `gateway.yaml`, then set the application hostname and backend Service in `httproute.yaml`. Use a gateway IP inside the configured pool.
+Run the gateway installer from the [repository checkout](#istio-and-metallb). In its template folder, set the LAN IP and listener hostnames in `gateway.yaml`, then set the application hostname and backend Service in `httproute.yaml`. Use a gateway IP inside the configured pool.
 
 ### Cilium Gateway API with Cloudflare DNS-01
 
@@ -64,10 +60,11 @@ Point your DNS record or upstream proxy at the gateway IP and deploy the backend
 
 ## 3. Join a Kubernetes worker node
 
-On the **worker**, run [the GitHub setup block](#start-from-the-github-url), then run the commands below. Type `RESET` when prompted to erase any existing Kubernetes state on that node.
+On the **worker**, run the reset script directly from GitHub. Type `RESET` when prompted to erase any existing Kubernetes state on that node, then reboot.
 
 ```bash
-sudo bash reset-to-worker.sh
+sudo bash -c \
+  'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/reset-to-worker.sh) && bash -c "$script"'
 sudo reboot
 ```
 
