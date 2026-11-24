@@ -6,6 +6,7 @@ MANIFEST_DIR="$ROOT_DIR/manifests/istio-gateway-api"
 ISTIO_VERSION=1.31.4
 GATEWAY_API_VERSION=v1.6.0
 METALLB_VERSION=v0.15.2
+source "$ROOT_DIR/lib/cloudflare-dns01.sh"
 GATEWAY_TLS_CERT="${GATEWAY_TLS_CERT:-}"
 GATEWAY_TLS_KEY="${GATEWAY_TLS_KEY:-}"
 
@@ -16,7 +17,10 @@ for manifest in metallb.yaml namespace.yaml gateway.yaml httproute.yaml; do
   [[ -r "$MANIFEST_DIR/$manifest" ]] || fail "Missing manifest $MANIFEST_DIR/$manifest. Run from a complete checkout."
 done
 
+validate_cloudflare_dns01
+
 if [[ -n "$GATEWAY_TLS_CERT" || -n "$GATEWAY_TLS_KEY" ]]; then
+  [[ -z "$CLOUDFLARE_API_TOKEN_FILE" ]] || fail 'Choose Cloudflare DNS-01 or certificate files for TLS.'
   [[ -n "$GATEWAY_TLS_CERT" && -f "$GATEWAY_TLS_CERT" && -r "$GATEWAY_TLS_CERT" ]] ||
     fail 'Set GATEWAY_TLS_CERT to a readable certificate file.'
   [[ -n "$GATEWAY_TLS_KEY" && -f "$GATEWAY_TLS_KEY" && -r "$GATEWAY_TLS_KEY" ]] ||
@@ -71,18 +75,22 @@ helm upgrade --install istiod istiod --repo "$ISTIO_REPO" \
   --namespace istio-system --version "$ISTIO_VERSION" --wait --timeout 5m
 kubectl wait --for=condition=Accepted --timeout=120s gatewayclass/istio
 
-if [[ -z "$GATEWAY_TLS_CERT" ]]; then
-  log 'Istio and MetalLB are ready. Set GATEWAY_TLS_CERT and GATEWAY_TLS_KEY to install the HTTPS Gateway and routes.'
+if [[ -z "$CLOUDFLARE_API_TOKEN_FILE" && -z "$GATEWAY_TLS_CERT" ]]; then
+  log 'Istio and MetalLB are ready. Set CLOUDFLARE_API_TOKEN_FILE and ACME_EMAIL to install the HTTPS Gateway.'
   exit 0
 fi
 
 log 'Install the HTTPS Gateway and routes'
 kubectl apply -f "$MANIFEST_DIR/namespace.yaml"
-kubectl -n istio-ingress create secret tls ingress-tls \
-  --cert="$GATEWAY_TLS_CERT" --key="$GATEWAY_TLS_KEY" --dry-run=client -o yaml |
-  kubectl apply --server-side -f -
+if [[ -n "$CLOUDFLARE_API_TOKEN_FILE" ]]; then
+  issue_gateway_certificate istio-ingress "$MANIFEST_DIR/httproute.yaml"
+else
+  kubectl -n istio-ingress create secret tls ingress-tls \
+    --cert="$GATEWAY_TLS_CERT" --key="$GATEWAY_TLS_KEY" --dry-run=client -o yaml |
+    kubectl apply --server-side -f -
+  kubectl apply -f "$MANIFEST_DIR/httproute.yaml"
+fi
 kubectl apply -f "$MANIFEST_DIR/gateway.yaml"
-kubectl apply -f "$MANIFEST_DIR/httproute.yaml"
 kubectl -n istio-ingress wait --for=condition=Programmed --timeout=300s gateway/public-gateway
 kubectl -n istio-ingress rollout status deployment/public-gateway-istio --timeout=300s
 kubectl -n istio-ingress wait --for='jsonpath={.status.loadBalancer.ingress[0].ip}' \
