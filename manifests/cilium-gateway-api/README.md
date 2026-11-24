@@ -5,6 +5,8 @@ creates the gateway LoadBalancer Service and uses Envoy for HTTP routing and
 TLS. LB IPAM allocates the address and L2 Announcements advertises it on the LAN.
 The pool and L2 policy select Services in the dedicated `cilium-ingress` namespace.
 
+For the raw GitHub command, see [Install an HTTPS Gateway](../../README.md#2-install-an-https-gateway). The steps below are for a local checkout.
+
 ## Configure
 
 - Set the LAN range in `lan.yaml` and the requested IP in `gateway.yaml`.
