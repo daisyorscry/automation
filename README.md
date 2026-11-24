@@ -58,51 +58,24 @@ After reboot, run the printed `kubeadm join` command on the **worker** with `sud
 
 ## Verify the cluster and HTTPS Gateway
 
-On the control plane, deploy a test app after the worker is `Ready`. Use the
-hostname from the install command and set `GATEWAY_NAMESPACE` to
-`cilium-ingress` or `istio-ingress`. Run this on the hostname if it has no app route yet.
+Run on the control plane after the worker is `Ready`.
+
+**Cilium Gateway and L2 Announcements**
 
 ```bash
-APP_HOSTNAME=app.example.com
-GATEWAY_NAMESPACE=cilium-ingress
-
-kubectl get nodes
-kubectl -n default create deployment gateway-smoke --image=nginx
-kubectl -n default expose deployment gateway-smoke --port=80
-kubectl -n default rollout status deployment/gateway-smoke --timeout=180s
-
-kubectl apply -f - <<EOF_ROUTE
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: gateway-smoke
-  namespace: default
-spec:
-  parentRefs:
-    - name: public-gateway
-      namespace: $GATEWAY_NAMESPACE
-      sectionName: https
-  hostnames:
-    - "$APP_HOSTNAME"
-  rules:
-    - backendRefs:
-        - name: gateway-smoke
-          port: 80
-EOF_ROUTE
-
-GATEWAY_IP=$(kubectl -n "$GATEWAY_NAMESPACE" get gateways.gateway.networking.k8s.io public-gateway \
-  -o 'jsonpath={.status.addresses[0].value}')
-curl --fail --retry 10 --retry-all-errors --retry-delay 2 \
-  --resolve "$APP_HOSTNAME:443:$GATEWAY_IP" "https://$APP_HOSTNAME/"
+GATEWAY_NAMESPACE=cilium-ingress bash -c \
+  'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/verify-cluster.sh) && bash -c "$script"'
 ```
 
-A successful request returns the nginx welcome page. Point your DNS record or
-upstream proxy at the Gateway IP for regular access.
-
-Remove the test app and route when done.
+**Istio Gateway and MetalLB**
 
 ```bash
-kubectl -n default delete httproute/gateway-smoke service/gateway-smoke deployment/gateway-smoke
+GATEWAY_NAMESPACE=istio-ingress bash -c \
+  'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/verify-cluster.sh) && bash -c "$script"'
 ```
+
+Each command checks its Gateway controller and load balancer, then deploys a
+temporary app, tests HTTPS, and removes the test resources. For a wildcard
+listener, set `APP_HOSTNAME` to a hostname covered by the certificate.
 
 [Legacy Istio Gateway and VirtualService manifests](manifests/istio-legacy-gateway)
