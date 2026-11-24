@@ -30,11 +30,11 @@ Choose the gateway that matches your setup. In its template folder, set the LAN 
 
 ### Cilium Gateway API with Cloudflare DNS-01
 
-Set the LAN range in [lan.yaml](manifests/cilium-gateway-api/lan.yaml) and save a Cloudflare API token on the control plane. [Cloudflare token setup](manifests/cilium-gateway-api/README.md#configure)
+Set the LAN range in [lan.yaml](manifests/cilium-gateway-api/lan.yaml) and create a Cloudflare API token for the target zone. [Cloudflare token setup](manifests/cilium-gateway-api/README.md#configure)
 
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
-  CLOUDFLARE_API_TOKEN_FILE=/path/to/cloudflare-token \
+  CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash install-cilium-gateway.sh
 ```
 
@@ -44,7 +44,7 @@ Use the [Istio Gateway API manifests](manifests/istio-gateway-api) and a Cloudfl
 
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
-  CLOUDFLARE_API_TOKEN_FILE=/path/to/cloudflare-token \
+  CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash install-istio-gateway.sh
 ```
 

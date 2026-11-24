@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 
 CERT_MANAGER_VERSION=v1.20.4
-CLOUDFLARE_API_TOKEN_FILE="${CLOUDFLARE_API_TOKEN_FILE:-}"
+cloudflare_api_token="${CLOUDFLARE_API_TOKEN:-}"
+unset CLOUDFLARE_API_TOKEN
 ACME_EMAIL="${ACME_EMAIL:-}"
 
+cloudflare_dns01_requested() {
+  [[ -n "$cloudflare_api_token" ]]
+}
+
 validate_cloudflare_dns01() {
-  if [[ -n "$CLOUDFLARE_API_TOKEN_FILE" || -n "$ACME_EMAIL" ]]; then
-    [[ -f "$CLOUDFLARE_API_TOKEN_FILE" && -r "$CLOUDFLARE_API_TOKEN_FILE" && -s "$CLOUDFLARE_API_TOKEN_FILE" ]] ||
-      fail 'Set CLOUDFLARE_API_TOKEN_FILE to a readable, nonempty token file.'
+  if cloudflare_dns01_requested || [[ -n "$ACME_EMAIL" ]]; then
+    cloudflare_dns01_requested || fail 'Set CLOUDFLARE_API_TOKEN for Cloudflare DNS-01.'
     [[ "$ACME_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] ||
       fail 'Set ACME_EMAIL to a valid ACME contact email.'
   fi
@@ -15,7 +19,7 @@ validate_cloudflare_dns01() {
 
 issue_gateway_certificate() {
   local gateway_namespace="$1" route_manifest="$2"
-  local cert_manager_crd hostname
+  local cert_manager_crd hostname token_data
   log 'Prepare cert-manager and the Cloudflare DNS-01 issuer'
   cert_manager_crd="$(kubectl get crd certificates.cert-manager.io --ignore-not-found -o name)"
   if [[ -z "$cert_manager_crd" ]]; then
@@ -30,9 +34,17 @@ issue_gateway_certificate() {
   [[ -n "$hostname" && "$hostname" != *.test ]] ||
     fail 'Set a hostname in your Cloudflare zone in httproute.yaml and update the listeners in gateway.yaml.'
 
-  kubectl -n "$gateway_namespace" create secret generic cloudflare-dns-token \
-    --from-file=api-token=<(tr -d '\r\n' < "$CLOUDFLARE_API_TOKEN_FILE") --dry-run=client -o yaml |
-    kubectl apply --server-side -f -
+  token_data="$(printf '%s' "$cloudflare_api_token" | base64 -w 0)"
+  kubectl apply --server-side -f - <<SECRET
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloudflare-dns-token
+  namespace: "$gateway_namespace"
+type: Opaque
+data:
+  api-token: "$token_data"
+SECRET
 
   kubectl apply -f - <<MANIFEST
 apiVersion: cert-manager.io/v1
