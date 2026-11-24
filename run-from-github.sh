@@ -53,11 +53,13 @@ if [[ "$1" != init-istio ]]; then
   fi
   [[ "${APP_HOSTNAME:-}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ && "$APP_HOSTNAME" != *.test ]] ||
     fail 'Set APP_HOSTNAME to the application hostname in your Cloudflare zone.'
-  [[ "${APP_SERVICE:-}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ && ${#APP_SERVICE} -le 63 ]] ||
-    fail 'Set APP_SERVICE to the backend Service name in the default namespace.'
-  APP_SERVICE_PORT="${APP_SERVICE_PORT:-80}"
-  [[ "$APP_SERVICE_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( APP_SERVICE_PORT <= 65535 )) ||
-    fail 'APP_SERVICE_PORT must be between 1 and 65535.'
+  if [[ -n "${APP_SERVICE:-}" ]]; then
+    [[ "$APP_SERVICE" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ && ${#APP_SERVICE} -le 63 ]] ||
+      fail 'Set APP_SERVICE to the backend Service name in the default namespace.'
+    APP_SERVICE_PORT="${APP_SERVICE_PORT:-80}"
+    [[ "$APP_SERVICE_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( APP_SERVICE_PORT <= 65535 )) ||
+      fail 'APP_SERVICE_PORT must be between 1 and 65535.'
+  fi
   [[ -n "${ACME_EMAIL:-}" && -n "${CLOUDFLARE_API_TOKEN:-}" ]] ||
     fail 'Set ACME_EMAIL and CLOUDFLARE_API_TOKEN for HTTPS.'
 fi
@@ -88,9 +90,16 @@ if [[ "$1" != init-istio ]]; then
   elif [[ -n "${GATEWAY_IP:-}" ]]; then
     sed -i "/metallb\.io\/address-pool:/a\      metallb.io/loadBalancerIPs: \"$GATEWAY_IP\"" "$gateway_manifest"
   fi
-  sed -i -E -e "s/^([[:space:]]*- )app\.example\.test$/\1$APP_HOSTNAME/" \
-    -e "s/^([[:space:]]*- name: )app$/\1$APP_SERVICE/" \
-    -e "s/^([[:space:]]*port: )80$/\1$APP_SERVICE_PORT/" "$work_dir/$manifest_dir/httproute.yaml"
+  route_manifest="$work_dir/$manifest_dir/httproute.yaml"
+  if [[ -n "${APP_SERVICE:-}" ]]; then
+    sed -i -E -e "s/^([[:space:]]*- )app\.example\.test$/\1$APP_HOSTNAME/" \
+      -e "s/^([[:space:]]*- name: )app$/\1$APP_SERVICE/" \
+      -e "s/^([[:space:]]*port: )80$/\1$APP_SERVICE_PORT/" "$route_manifest"
+  else
+    # Keep the first document, which redirects HTTP to HTTPS.
+    sed -i '/^---$/,$d' "$route_manifest"
+  fi
+  export GATEWAY_CERT_HOSTNAME="$APP_HOSTNAME"
 fi
 
 case "$1" in

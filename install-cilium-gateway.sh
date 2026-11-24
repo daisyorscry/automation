@@ -83,7 +83,7 @@ issue_gateway_certificate cilium-ingress "$MANIFEST_DIR/httproute.yaml"
 
 log 'Install the HTTPS Gateway'
 kubectl apply -f "$MANIFEST_DIR/gateway.yaml"
-kubectl -n cilium-ingress wait --for=condition=Programmed --timeout=300s gateway/public-gateway
+kubectl -n cilium-ingress wait --for=condition=Programmed --timeout=300s gateways.gateway.networking.k8s.io/public-gateway
 kubectl -n cilium-ingress wait --for='jsonpath={.status.addresses[0].value}' \
-  --timeout=120s gateway/public-gateway
+  --timeout=120s gateways.gateway.networking.k8s.io/public-gateway
 kubectl -n cilium-ingress get gateway,svc

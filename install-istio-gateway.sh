@@ -125,7 +125,7 @@ else
   kubectl apply -f "$MANIFEST_DIR/httproute.yaml"
 fi
 kubectl apply -f "$MANIFEST_DIR/gateway.yaml"
-kubectl -n istio-ingress wait --for=condition=Programmed --timeout=300s gateway/public-gateway
+kubectl -n istio-ingress wait --for=condition=Programmed --timeout=300s gateways.gateway.networking.k8s.io/public-gateway
 kubectl -n istio-ingress rollout status deployment/public-gateway-istio --timeout=300s
 kubectl -n istio-ingress wait --for='jsonpath={.status.loadBalancer.ingress[0].ip}' \
   --timeout=120s service/public-gateway-istio

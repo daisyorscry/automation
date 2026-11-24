@@ -19,7 +19,7 @@ validate_cloudflare_dns01() {
 
 issue_gateway_certificate() {
   local gateway_namespace="$1" route_manifest="$2"
-  local cert_manager_crd hostname token_data
+  local cert_manager_crd token_data hostname="${GATEWAY_CERT_HOSTNAME:-}"
   log 'Prepare cert-manager and the Cloudflare DNS-01 issuer'
   cert_manager_crd="$(kubectl get crd certificates.cert-manager.io --ignore-not-found -o name)"
   if [[ -z "$cert_manager_crd" ]]; then
@@ -30,9 +30,11 @@ issue_gateway_certificate() {
   kubectl wait --for=condition=Established --timeout=120s \
     crd/issuers.cert-manager.io crd/certificates.cert-manager.io
   kubectl apply -f "$route_manifest"
-  hostname="$(kubectl -n default get httproute app-route -o 'jsonpath={.spec.hostnames[0]}')"
-  [[ -n "$hostname" && "$hostname" != *.test ]] ||
-    fail 'Set a hostname in your Cloudflare zone in httproute.yaml and update the listeners in gateway.yaml.'
+  if [[ -z "$hostname" ]]; then
+    hostname="$(kubectl -n default get httproute app-route -o 'jsonpath={.spec.hostnames[0]}')"
+  fi
+  [[ "$hostname" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ && "$hostname" != *.test ]] ||
+    fail 'Use a public hostname in your Cloudflare zone for the Gateway certificate.'
 
   token_data="$(printf '%s' "$cloudflare_api_token" | base64 -w 0)"
   kubectl apply --server-side -f - <<SECRET
