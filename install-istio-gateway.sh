@@ -59,16 +59,18 @@ if [[ "$mode" == --gateway-only ]]; then
     fail 'Unable to read MetalLB pool lan-pool. Run the Istio control-plane bootstrap first.'
   requested_ip="$(kubectl create --dry-run=client -f "$MANIFEST_DIR/gateway.yaml" \
     -o 'jsonpath={.spec.infrastructure.annotations.metallb\.io/loadBalancerIPs}')"
-  requested_address="$(ipv4_number "$requested_ip")" ||
-    fail 'Set an IPv4 address in the Gateway metallb.io/loadBalancerIPs annotation.'
-  in_pool=false
-  while IFS= read -r block; do
-    if ipv4_in_block "$requested_address" "$block"; then
-      in_pool=true
-      break
-    fi
-  done <<< "$pool_addresses"
-  [[ "$in_pool" == true ]] || fail "Gateway IP $requested_ip is outside the existing MetalLB pool lan-pool."
+  if [[ -n "$requested_ip" ]]; then
+    requested_address="$(ipv4_number "$requested_ip")" ||
+      fail 'Set an IPv4 address in the Gateway metallb.io/loadBalancerIPs annotation.'
+    in_pool=false
+    while IFS= read -r block; do
+      if ipv4_in_block "$requested_address" "$block"; then
+        in_pool=true
+        break
+      fi
+    done <<< "$pool_addresses"
+    [[ "$in_pool" == true ]] || fail "Gateway IP $requested_ip is outside the existing MetalLB pool lan-pool."
+  fi
 else
   if [[ "${ALLOW_CONTROL_PLANE_WORKLOADS:-false}" == true ]]; then
     node="$(kubectl get nodes -o name)"

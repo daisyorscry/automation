@@ -4,12 +4,17 @@ set -Eeuo pipefail
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
 (( EUID == 0 )) || fail 'Run this installer with sudo.'
-(( $# == 1 )) || fail 'Choose init-istio, gateway-istio, or gateway-cilium.'
+(( $# == 1 )) || fail 'Choose init-cilium-gateway, init-istio-gateway, init-istio, gateway-istio, or gateway-cilium.'
 
 case "$1" in
-  init-istio) installer=install-istio-gateway.sh; template=istio-gateway-api ;;
-  gateway-istio) installer=install-istio-gateway.sh; template=istio-gateway-api ;;
-  gateway-cilium) installer=install-cilium-gateway.sh; template=cilium-gateway-api ;;
+  init-istio|init-istio-gateway|gateway-istio)
+    installer=install-istio-gateway.sh
+    template=istio-gateway-api
+    ;;
+  init-cilium-gateway|gateway-cilium)
+    installer=install-cilium-gateway.sh
+    template=cilium-gateway-api
+    ;;
   *) fail "Unknown installer: $1" ;;
 esac
 
@@ -36,12 +41,15 @@ if [[ "$1" != gateway-istio ]]; then
 fi
 
 if [[ "$1" != init-istio ]]; then
-  if [[ "$1" == gateway-cilium ]]; then
+  if [[ "$template" == cilium-gateway-api ]]; then
     GATEWAY_IP="${GATEWAY_IP:-$LAN_POOL_START}"
-  fi
-  gateway="$(ipv4_number "${GATEWAY_IP:-}")" || fail 'Set GATEWAY_IP to an IPv4 address.'
-  if [[ "$1" == gateway-cilium ]]; then
+    gateway="$(ipv4_number "$GATEWAY_IP")" || fail 'Set GATEWAY_IP to an IPv4 address.'
     (( start <= gateway && gateway <= end )) || fail 'GATEWAY_IP must be inside the LAN pool.'
+  elif [[ -n "${GATEWAY_IP:-}" ]]; then
+    gateway="$(ipv4_number "$GATEWAY_IP")" || fail 'Set GATEWAY_IP to an IPv4 address.'
+    if [[ "$1" == init-istio-gateway ]]; then
+      (( start <= gateway && gateway <= end )) || fail 'GATEWAY_IP must be inside the LAN pool.'
+    fi
   fi
   [[ "${APP_HOSTNAME:-}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ && "$APP_HOSTNAME" != *.test ]] ||
     fail 'Set APP_HOSTNAME to the application hostname in your Cloudflare zone.'
@@ -66,25 +74,34 @@ if [[ "$template" == cilium-gateway-api ]]; then
   fetch "$manifest_dir/lan.yaml"
   sed -i -e "s/^    - start: .*/    - start: \"$LAN_POOL_START\"/" \
     -e "s/^      stop: .*/      stop: \"$LAN_POOL_END\"/" "$work_dir/$manifest_dir/lan.yaml"
-elif [[ "$1" == init-istio ]]; then
+elif [[ "$1" == init-istio* ]]; then
   fetch "$manifest_dir/metallb.yaml"
   sed -i "s/^  - 192\.168\.10\.10-192\.168\.10\.20$/  - $LAN_POOL_START-$LAN_POOL_END/" \
     "$work_dir/$manifest_dir/metallb.yaml"
 fi
 
-if [[ "$1" == init-istio ]]; then
-  fetch init-k8s.sh
-  bash "$work_dir/init-k8s.sh" --with-istio
-else
-  sed -i -E -e "s/^([[:space:]]*hostname:).*/\1 \"$APP_HOSTNAME\"/" \
-    -e "s/^([[:space:]]*metallb\.io\/loadBalancerIPs:|[[:space:]]*value:) .*/\1 \"$GATEWAY_IP\"/" \
-    "$work_dir/$manifest_dir/gateway.yaml"
+if [[ "$1" != init-istio ]]; then
+  gateway_manifest="$work_dir/$manifest_dir/gateway.yaml"
+  sed -i -E "s/^([[:space:]]*hostname:).*/\1 \"$APP_HOSTNAME\"/" "$gateway_manifest"
+  if [[ "$template" == cilium-gateway-api ]]; then
+    sed -i -E "s/^([[:space:]]*value:) .*/\1 \"$GATEWAY_IP\"/" "$gateway_manifest"
+  elif [[ -n "${GATEWAY_IP:-}" ]]; then
+    sed -i "/metallb\.io\/address-pool:/a\      metallb.io/loadBalancerIPs: \"$GATEWAY_IP\"" "$gateway_manifest"
+  fi
   sed -i -E -e "s/^([[:space:]]*- )app\.example\.test$/\1$APP_HOSTNAME/" \
     -e "s/^([[:space:]]*- name: )app$/\1$APP_SERVICE/" \
     -e "s/^([[:space:]]*port: )80$/\1$APP_SERVICE_PORT/" "$work_dir/$manifest_dir/httproute.yaml"
-  if [[ "$1" == gateway-istio ]]; then
-    bash "$work_dir/$installer" --gateway-only
-  else
-    bash "$work_dir/$installer"
-  fi
 fi
+
+case "$1" in
+  init-istio|init-istio-gateway)
+    fetch init-k8s.sh
+    bash "$work_dir/init-k8s.sh" --with-istio
+    ;;
+  init-cilium-gateway)
+    fetch init-k8s.sh
+    bash "$work_dir/init-k8s.sh" --with-cilium-gateway
+    ;;
+  gateway-istio) bash "$work_dir/$installer" --gateway-only ;;
+  gateway-cilium) bash "$work_dir/$installer" ;;
+esac

@@ -8,13 +8,12 @@ CNI, assign this IP pool exclusively to MetalLB. This example uses Istio
 1.31.4 with Gateway API v1.6.0, a pairing compatible with Kubernetes 1.32.
 [Istio version compatibility](https://istio.io/latest/docs/releases/supported-releases/)
 
-For the raw GitHub command, see [Install an HTTPS Gateway](../../README.md#2-install-an-https-gateway). The steps below are for a local checkout.
+For a complete install from GitHub, see the [setup commands](../../README.md). The steps below are for a local checkout.
 
 ## Configure
 
-- Set the LAN pool in `metallb.yaml` and the gateway IP in
-  `gateway.yaml`. Keep the IP inside the pool and reserve the pool outside DHCP.
-  Use a free IP if installing alongside another gateway.
+- Set the LAN pool in `metallb.yaml` during bootstrap and reserve the range
+  outside DHCP. MetalLB assigns the Gateway an IP from that pool.
 - Replace the example domain in `gateway.yaml` and the hostname in
   `httproute.yaml`. Point DNS or the upstream proxy at the gateway IP.
 - Set the backend name and Service port in `httproute.yaml`. The app route

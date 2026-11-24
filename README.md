@@ -6,58 +6,38 @@ Bootstrap a Kubernetes control plane on Debian or Ubuntu with kubeadm, CRI-O, an
 
 Run the commands directly from GitHub. Replace `192.168.10.232` below with your control-plane node's IPv4 address.
 
-## 1. Initialize the Kubernetes control plane
+Choose one control-plane setup. Set a free LAN pool outside DHCP, the backend
+Service in the `default` namespace, and a Cloudflare token with DNS edit and zone
+read permissions. For a single-node cluster, add `ALLOW_CONTROL_PLANE_WORKLOADS=true`
+after `sudo env`. If setup is waiting for a worker, go to [Join a worker](#join-a-kubernetes-worker-node).
 
-### Cilium
+## 1. Install Cilium and Cilium Gateway
 
-```bash
-sudo env CONTROL_PLANE_IP=192.168.10.232 bash -c \
-  'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/init-k8s.sh) && bash -c "$script"'
-```
-
-### Istio and MetalLB
-
-Set the LAN IP range to addresses reserved outside DHCP.
+Cilium uses the first IP in the pool by default.
 
 ```bash
 sudo env CONTROL_PLANE_IP=192.168.10.232 \
   LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 \
-  bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- init-istio'
+  APP_HOSTNAME=app.example.com APP_SERVICE=app APP_SERVICE_PORT=80 \
+  ACME_EMAIL=admin@example.com CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
+  bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- init-cilium-gateway'
 ```
 
-Both modes use Cilium for pod networking. For a single-node Istio cluster, add `ALLOW_CONTROL_PLANE_WORKLOADS=true` after `sudo env`. If the installer is waiting for a worker, go to [step 3](#3-join-a-kubernetes-worker-node).
+## 2. Install Istio, MetalLB, and Istio Gateway
 
-## 2. Install an HTTPS Gateway
-
-Run on the control plane. Use an IP inside the LAN pool and the backend Service name and port in the `default` namespace. Use a Cloudflare API token with DNS edit and zone read permissions for your domain.
-
-### Cilium Gateway API
-
-The gateway uses the first IP in the pool by default. Set `GATEWAY_IP` only to select a different free IP in that range.
+Cilium handles pod networking. MetalLB assigns the Gateway IP from the pool.
 
 ```bash
-sudo env ACME_EMAIL=admin@example.com \
+sudo env CONTROL_PLANE_IP=192.168.10.232 \
   LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 \
   APP_HOSTNAME=app.example.com APP_SERVICE=app APP_SERVICE_PORT=80 \
-  CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
-  bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- gateway-cilium'
-```
-
-### Istio Gateway API with MetalLB
-
-Choose a free `GATEWAY_IP` from the MetalLB pool created during Istio bootstrap.
-
-```bash
-sudo env ACME_EMAIL=admin@example.com \
-  GATEWAY_IP=192.168.10.10 \
-  APP_HOSTNAME=app.example.com APP_SERVICE=app APP_SERVICE_PORT=80 \
-  CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
-  bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- gateway-istio'
+  ACME_EMAIL=admin@example.com CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
+  bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- init-istio-gateway'
 ```
 
 Point your DNS record or upstream proxy at the gateway IP and deploy the backend Service referenced by the route.
 
-## 3. Join a Kubernetes worker node
+## Join a Kubernetes worker node
 
 On the **worker**, run the reset script directly from GitHub. Type `RESET` when prompted to erase any existing Kubernetes state on that node, then reboot.
 

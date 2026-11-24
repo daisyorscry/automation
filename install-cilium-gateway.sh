@@ -10,12 +10,18 @@ source "$ROOT_DIR/lib/cloudflare-dns01.sh"
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
-(( $# == 0 )) || fail 'Usage: bash install-cilium-gateway.sh'
+case "${1:-}" in
+  ''|--check) ;;
+  *) fail 'Usage: bash install-cilium-gateway.sh [--check]' ;;
+esac
 for manifest in cilium-values.yaml lan.yaml namespace.yaml gateway.yaml httproute.yaml; do
   [[ -r "$MANIFEST_DIR/$manifest" ]] || fail "Missing manifest $MANIFEST_DIR/$manifest. Run from a complete checkout."
 done
 
 validate_cloudflare_dns01
+if [[ "${1:-}" == --check ]]; then
+  exit 0
+fi
 
 export KUBECONFIG=/etc/kubernetes/admin.conf
 [[ -r "$KUBECONFIG" ]] || fail "Run on the control plane with sudo and a readable $KUBECONFIG."
@@ -32,6 +38,16 @@ gateway_crd="$(kubectl get crd gateways.gateway.networking.k8s.io --ignore-not-f
   -o 'jsonpath={.metadata.name}{" "}{.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}')"
 if [[ -n "$gateway_crd" && "${gateway_crd#* }" != "$GATEWAY_API_VERSION" ]]; then
   fail "Existing Gateway API bundle differs from $GATEWAY_API_VERSION. Check compatibility before changing the shared CRDs."
+fi
+
+if [[ "${ALLOW_CONTROL_PLANE_WORKLOADS:-false}" == true ]]; then
+  node="$(kubectl get nodes -o name)"
+  [[ "$node" == node/* && "$node" != *$'\n'* ]] ||
+    fail 'ALLOW_CONTROL_PLANE_WORKLOADS=true requires a single-node cluster.'
+  taint="$(kubectl get "$node" -o 'jsonpath={.spec.taints[?(@.key=="node-role.kubernetes.io/control-plane")].effect}')"
+  if [[ "$taint" == NoSchedule ]]; then
+    kubectl taint "$node" node-role.kubernetes.io/control-plane:NoSchedule-
+  fi
 fi
 
 log "Install Gateway API $GATEWAY_API_VERSION"

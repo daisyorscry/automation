@@ -65,10 +65,17 @@ if (( EUID != 0 )); then
   exit 1
 fi
 
-if [[ "${1:-}" == --with-istio ]]; then
-  ISTIO_INSTALLER="$(dirname -- "${BASH_SOURCE[0]}")/install-istio-gateway.sh"
-  bash "$ISTIO_INSTALLER" --check
-fi
+GATEWAY_INSTALLER=
+case "${1:-}" in
+  --with-istio)
+    GATEWAY_INSTALLER="$(dirname -- "${BASH_SOURCE[0]}")/install-istio-gateway.sh"
+    bash "$GATEWAY_INSTALLER" --check
+    ;;
+  --with-cilium-gateway)
+    GATEWAY_INSTALLER="$(dirname -- "${BASH_SOURCE[0]}")/install-cilium-gateway.sh"
+    bash "$GATEWAY_INSTALLER" --check
+    ;;
+esac
 
 MODE=install
 HAS_KUBE_STATE=false
@@ -269,6 +276,6 @@ kubectl -n kube-system exec daemonset/cilium -- cilium-dbg status --verbose
 
 log 'Installation complete: Cilium, nodes, and CoreDNS are ready.'
 
-if [[ "${1:-}" == --with-istio ]]; then
-  bash "$ISTIO_INSTALLER"
+if [[ -n "${GATEWAY_INSTALLER:-}" ]]; then
+  bash "$GATEWAY_INSTALLER"
 fi
