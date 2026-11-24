@@ -38,13 +38,13 @@ sudo env ACME_EMAIL=admin@example.com \
   bash install-cilium-gateway.sh
 ```
 
-### Istio Gateway API with MetalLB
+### Istio Gateway API with MetalLB and Cloudflare DNS-01
 
-Use the [Istio Gateway API manifests](manifests/istio-gateway-api) and provide a TLS certificate and its private key.
+Use the [Istio Gateway API manifests](manifests/istio-gateway-api) and a Cloudflare API token for the target DNS zone.
 
 ```bash
-sudo env GATEWAY_TLS_CERT=/path/to/fullchain.pem \
-  GATEWAY_TLS_KEY=/path/to/privkey.pem \
+sudo env ACME_EMAIL=admin@example.com \
+  CLOUDFLARE_API_TOKEN_FILE=/path/to/cloudflare-token \
   bash install-istio-gateway.sh
 ```
 

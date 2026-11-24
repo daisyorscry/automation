@@ -18,43 +18,29 @@ CNI, assign this IP pool exclusively to MetalLB. This example uses Istio
 - Set the backend name and Service port in `httproute.yaml`. The app route
   and its backend Service use the `default` namespace. To move both, change
   the route namespace and the HTTPS listener's namespace selector together.
-- Have a certificate covering the hostname and its matching private key
-  ready for the `ingress-tls` Secret.
+- Save a Cloudflare API token with `Zone:DNS:Edit` and `Zone:Zone:Read`
+  permissions for the target zone in a protected file on the control plane.
 
-## Install on a fresh cluster
+## Install
 
-Run from the repository root.
+Run from the repository root after initializing the control plane.
 
 ```bash
-kubectl config current-context
+sudo env ACME_EMAIL=admin@example.com \
+  CLOUDFLARE_API_TOKEN_FILE=/path/to/cloudflare-token \
+  bash install-istio-gateway.sh
+```
 
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.0/standard-install.yaml
-kubectl wait --for=condition=Established --timeout=120s \
-  crd/gatewayclasses.gateway.networking.k8s.io \
-  crd/gateways.gateway.networking.k8s.io \
-  crd/httproutes.gateway.networking.k8s.io
+The installer uses cert-manager and Cloudflare DNS-01 to issue a Let's Encrypt
+certificate for the hostname in `httproute.yaml`. It waits for the certificate
+before applying the HTTPS Gateway. Run without the two variables to install
+Istio and MetalLB ahead of the HTTPS Gateway.
 
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.15.2/config/manifests/metallb-native.yaml
-kubectl wait --for=condition=Established --timeout=120s \
-  crd/ipaddresspools.metallb.io crd/l2advertisements.metallb.io
-kubectl -n metallb-system rollout status deployment/controller --timeout=300s
-kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
-kubectl apply -f manifests/istio-gateway-api/metallb.yaml
+Check the external IP and route from the control plane.
 
-helm upgrade --install istio-base base --repo https://istio-release.storage.googleapis.com/charts \
-  --namespace istio-system --create-namespace --version 1.31.4 --wait
-helm upgrade --install istiod istiod --repo https://istio-release.storage.googleapis.com/charts \
-  --namespace istio-system --version 1.31.4 --wait
-kubectl wait --for=condition=Accepted --timeout=120s gatewayclass/istio
-
-kubectl apply -f manifests/istio-gateway-api/namespace.yaml
-kubectl -n istio-ingress create secret tls ingress-tls --cert=fullchain.pem --key=privkey.pem
-kubectl apply -f manifests/istio-gateway-api/gateway.yaml
-kubectl apply -f manifests/istio-gateway-api/httproute.yaml
-kubectl -n istio-ingress wait --for=condition=Programmed --timeout=300s gateway/public-gateway
-kubectl -n istio-ingress get service public-gateway-istio
+```bash
+kubectl -n istio-ingress get gateway,svc
 kubectl -n default describe httproute app-route
 ```
 
-Check that the Service has the expected external IP and the app route reports
-`Accepted=True` and `ResolvedRefs=True` for its HTTPS parent.
+[Cloudflare DNS-01 token setup](https://cert-manager.io/docs/configuration/acme/dns01/cloudflare/)

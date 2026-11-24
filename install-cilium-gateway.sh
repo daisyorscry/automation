@@ -5,9 +5,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST_DIR="$ROOT_DIR/manifests/cilium-gateway-api"
 CILIUM_VERSION=1.19.10
 GATEWAY_API_VERSION=v1.4.1
-CERT_MANAGER_VERSION=v1.20.4
-CLOUDFLARE_API_TOKEN_FILE="${CLOUDFLARE_API_TOKEN_FILE:-}"
-ACME_EMAIL="${ACME_EMAIL:-}"
+source "$ROOT_DIR/lib/cloudflare-dns01.sh"
 
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -17,12 +15,7 @@ for manifest in cilium-values.yaml lan.yaml namespace.yaml gateway.yaml httprout
   [[ -r "$MANIFEST_DIR/$manifest" ]] || fail "Missing manifest $MANIFEST_DIR/$manifest. Run from a complete checkout."
 done
 
-if [[ -n "$CLOUDFLARE_API_TOKEN_FILE" || -n "$ACME_EMAIL" ]]; then
-  [[ -f "$CLOUDFLARE_API_TOKEN_FILE" && -r "$CLOUDFLARE_API_TOKEN_FILE" && -s "$CLOUDFLARE_API_TOKEN_FILE" ]] ||
-    fail 'Set CLOUDFLARE_API_TOKEN_FILE to a readable, nonempty token file.'
-  [[ "$ACME_EMAIL" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]] ||
-    fail 'Set ACME_EMAIL to a valid ACME contact email.'
-fi
+validate_cloudflare_dns01
 
 export KUBECONFIG=/etc/kubernetes/admin.conf
 [[ -r "$KUBECONFIG" ]] || fail "Run on the control plane with sudo and a readable $KUBECONFIG."
@@ -70,59 +63,7 @@ if [[ -z "$CLOUDFLARE_API_TOKEN_FILE" ]]; then
   exit 0
 fi
 
-log 'Prepare cert-manager and the Cloudflare DNS-01 issuer'
-cert_manager_crd="$(kubectl get crd certificates.cert-manager.io --ignore-not-found -o name)"
-if [[ -z "$cert_manager_crd" ]]; then
-  helm upgrade --install cert-manager oci://quay.io/jetstack/charts/cert-manager \
-    --namespace cert-manager --create-namespace --version "$CERT_MANAGER_VERSION" \
-    --set crds.enabled=true --wait --wait-for-jobs --timeout 5m
-fi
-kubectl wait --for=condition=Established --timeout=120s \
-  crd/issuers.cert-manager.io crd/certificates.cert-manager.io
-kubectl apply -f "$MANIFEST_DIR/httproute.yaml"
-hostname="$(kubectl -n default get httproute app-route -o 'jsonpath={.spec.hostnames[0]}')"
-[[ -n "$hostname" && "$hostname" != *.test ]] ||
-  fail 'Set a hostname in your Cloudflare zone in httproute.yaml and update the listeners in gateway.yaml.'
-
-kubectl -n cilium-ingress create secret generic cloudflare-dns-token \
-  --from-file=api-token=<(tr -d '\r\n' < "$CLOUDFLARE_API_TOKEN_FILE") --dry-run=client -o yaml |
-  kubectl apply --server-side -f -
-
-kubectl apply -f - <<MANIFEST
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  name: letsencrypt-dns01
-  namespace: cilium-ingress
-spec:
-  acme:
-    email: "$ACME_EMAIL"
-    server: https://acme-v02.api.letsencrypt.org/directory
-    privateKeySecretRef:
-      name: letsencrypt-dns01-account
-    solvers:
-      - dns01:
-          cloudflare:
-            apiTokenSecretRef:
-              name: cloudflare-dns-token
-              key: api-token
----
-apiVersion: cert-manager.io/v1
-kind: Certificate
-metadata:
-  name: ingress-tls
-  namespace: cilium-ingress
-spec:
-  secretName: ingress-tls
-  dnsNames:
-    - "$hostname"
-  issuerRef:
-    name: letsencrypt-dns01
-    kind: Issuer
-MANIFEST
-
-log "Wait for Let's Encrypt to issue the certificate"
-kubectl -n cilium-ingress wait --for=condition=Ready --timeout=600s certificate/ingress-tls
+issue_gateway_certificate cilium-ingress "$MANIFEST_DIR/httproute.yaml"
 
 log 'Install the HTTPS Gateway'
 kubectl apply -f "$MANIFEST_DIR/gateway.yaml"
