@@ -33,9 +33,11 @@ Run on the control plane. Use an IP inside the LAN pool and the backend Service 
 
 ### Cilium Gateway API
 
+The gateway uses the first IP in the pool by default. Set `GATEWAY_IP` only to select a different free IP in that range.
+
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
-  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 GATEWAY_IP=192.168.10.10 \
+  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 \
   APP_HOSTNAME=app.example.com APP_SERVICE=app APP_SERVICE_PORT=80 \
   CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- gateway-cilium'

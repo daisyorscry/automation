@@ -36,6 +36,9 @@ if [[ "$1" != gateway-istio ]]; then
 fi
 
 if [[ "$1" != init-istio ]]; then
+  if [[ "$1" == gateway-cilium ]]; then
+    GATEWAY_IP="${GATEWAY_IP:-$LAN_POOL_START}"
+  fi
   gateway="$(ipv4_number "${GATEWAY_IP:-}")" || fail 'Set GATEWAY_IP to an IPv4 address.'
   if [[ "$1" == gateway-cilium ]]; then
     (( start <= gateway && gateway <= end )) || fail 'GATEWAY_IP must be inside the LAN pool.'
