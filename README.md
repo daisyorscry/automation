@@ -43,11 +43,11 @@ sudo env ACME_EMAIL=admin@example.com \
 
 ### Istio Gateway API with MetalLB
 
-Use the same pool range as in the Istio bootstrap command.
+Choose a free `GATEWAY_IP` from the MetalLB pool created during Istio bootstrap.
 
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
-  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 GATEWAY_IP=192.168.10.10 \
+  GATEWAY_IP=192.168.10.10 \
   APP_HOSTNAME=app.example.com APP_SERVICE=app APP_SERVICE_PORT=80 \
   CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- gateway-istio'
