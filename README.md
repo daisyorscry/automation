@@ -4,70 +4,64 @@
 
 Bootstrap a Kubernetes control plane on Debian or Ubuntu with kubeadm, CRI-O, and Cilium. Choose Cilium Gateway API or Istio Gateway API with MetalLB for HTTPS ingress.
 
-## Start from the GitHub URL
-
-On each Debian or Ubuntu node, paste this block into Bash to fetch the scripts and manifests together into a temporary directory. Run the remaining commands from that shell.
-
-```bash
-setup_dir=$(mktemp -d) &&
-  (set -o pipefail
-   curl -fsSL https://github.com/daisyorscry/automation/archive/refs/heads/main.tar.gz |
-     tar -xz --strip-components=1 -C "$setup_dir") &&
-  cd "$setup_dir"
-```
-
-Replace `192.168.10.232` below with your control-plane node's IPv4 address.
+Run the commands directly from GitHub. Replace `192.168.10.232` below with your control-plane node's IPv4 address.
 
 ## 1. Initialize the Kubernetes control plane
 
 ### Cilium
 
 ```bash
-sudo env CONTROL_PLANE_IP=192.168.10.232 bash init-k8s.sh
+sudo env CONTROL_PLANE_IP=192.168.10.232 bash -c \
+  'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/init-k8s.sh) && bash -c "$script"'
 ```
 
 ### Istio and MetalLB
 
-Set the LAN IP range in [metallb.yaml](manifests/istio-gateway-api/metallb.yaml), then run:
+Set the LAN IP range to addresses reserved outside DHCP.
 
 ```bash
-sudo env CONTROL_PLANE_IP=192.168.10.232 bash init-k8s.sh --with-istio
+sudo env CONTROL_PLANE_IP=192.168.10.232 \
+  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 \
+  bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- init-istio'
 ```
 
 Both modes use Cilium for pod networking. For a single-node Istio cluster, add `ALLOW_CONTROL_PLANE_WORKLOADS=true` after `sudo env`. If the installer is waiting for a worker, go to [step 3](#3-join-a-kubernetes-worker-node).
 
 ## 2. Install an HTTPS Gateway
 
-Choose the gateway that matches your setup. In its template folder, set the LAN IP and listener hostnames in `gateway.yaml`, then set the application hostname and backend Service in `httproute.yaml`. Use a gateway IP inside the configured pool.
+Run on the control plane. Use an IP inside the LAN pool and the backend Service name and port in the `default` namespace. Use a Cloudflare API token with DNS edit and zone read permissions for your domain.
 
-### Cilium Gateway API with Cloudflare DNS-01
-
-Set the LAN range in [lan.yaml](manifests/cilium-gateway-api/lan.yaml) and create a Cloudflare API token for the target zone. [Cloudflare token setup](manifests/cilium-gateway-api/README.md#configure)
+### Cilium Gateway API
 
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
+  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 GATEWAY_IP=192.168.10.10 \
+  APP_HOSTNAME=app.example.com APP_SERVICE=app APP_SERVICE_PORT=80 \
   CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
-  bash install-cilium-gateway.sh
+  bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- gateway-cilium'
 ```
 
-### Istio Gateway API with MetalLB and Cloudflare DNS-01
+### Istio Gateway API with MetalLB
 
-Use the [Istio Gateway API manifests](manifests/istio-gateway-api) and a Cloudflare API token for the target DNS zone.
+Use the same pool range as in the Istio bootstrap command.
 
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
+  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 GATEWAY_IP=192.168.10.10 \
+  APP_HOSTNAME=app.example.com APP_SERVICE=app APP_SERVICE_PORT=80 \
   CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
-  bash install-istio-gateway.sh
+  bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- gateway-istio'
 ```
 
 Point your DNS record or upstream proxy at the gateway IP and deploy the backend Service referenced by the route.
 
 ## 3. Join a Kubernetes worker node
 
-On the **worker**, run [the GitHub setup block](#start-from-the-github-url), then run the commands below. Type `RESET` when prompted to erase any existing Kubernetes state on that node.
+On the **worker**, run the reset script directly from GitHub. Type `RESET` when prompted to erase any existing Kubernetes state on that node, then reboot.
 
 ```bash
-sudo bash reset-to-worker.sh
+sudo bash -c \
+  'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/reset-to-worker.sh) && bash -c "$script"'
 sudo reboot
 ```
 
