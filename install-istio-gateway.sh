@@ -20,7 +20,9 @@ done
 validate_cloudflare_dns01
 
 if [[ -n "$GATEWAY_TLS_CERT" || -n "$GATEWAY_TLS_KEY" ]]; then
-  [[ -z "$CLOUDFLARE_API_TOKEN_FILE" ]] || fail 'Choose Cloudflare DNS-01 or certificate files for TLS.'
+  if cloudflare_dns01_requested; then
+    fail 'Choose Cloudflare DNS-01 or certificate files for TLS.'
+  fi
   [[ -n "$GATEWAY_TLS_CERT" && -f "$GATEWAY_TLS_CERT" && -r "$GATEWAY_TLS_CERT" ]] ||
     fail 'Set GATEWAY_TLS_CERT to a readable certificate file.'
   [[ -n "$GATEWAY_TLS_KEY" && -f "$GATEWAY_TLS_KEY" && -r "$GATEWAY_TLS_KEY" ]] ||
@@ -75,14 +77,14 @@ helm upgrade --install istiod istiod --repo "$ISTIO_REPO" \
   --namespace istio-system --version "$ISTIO_VERSION" --wait --timeout 5m
 kubectl wait --for=condition=Accepted --timeout=120s gatewayclass/istio
 
-if [[ -z "$CLOUDFLARE_API_TOKEN_FILE" && -z "$GATEWAY_TLS_CERT" ]]; then
-  log 'Istio and MetalLB are ready. Set CLOUDFLARE_API_TOKEN_FILE and ACME_EMAIL to install the HTTPS Gateway.'
+if ! cloudflare_dns01_requested && [[ -z "$GATEWAY_TLS_CERT" ]]; then
+  log 'Istio and MetalLB are ready. Set CLOUDFLARE_API_TOKEN and ACME_EMAIL to install the HTTPS Gateway.'
   exit 0
 fi
 
 log 'Install the HTTPS Gateway and routes'
 kubectl apply -f "$MANIFEST_DIR/namespace.yaml"
-if [[ -n "$CLOUDFLARE_API_TOKEN_FILE" ]]; then
+if cloudflare_dns01_requested; then
   issue_gateway_certificate istio-ingress "$MANIFEST_DIR/httproute.yaml"
 else
   kubectl -n istio-ingress create secret tls ingress-tls \

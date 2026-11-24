@@ -18,8 +18,8 @@ CNI, assign this IP pool exclusively to MetalLB. This example uses Istio
 - Set the backend name and Service port in `httproute.yaml`. The app route
   and its backend Service use the `default` namespace. To move both, change
   the route namespace and the HTTPS listener's namespace selector together.
-- Save a Cloudflare API token with `Zone:DNS:Edit` and `Zone:Zone:Read`
-  permissions for the target zone in a protected file on the control plane.
+- Create a Cloudflare API token with `Zone:DNS:Edit` and `Zone:Zone:Read`
+  permissions for the target zone.
 
 ## Install
 
@@ -27,7 +27,7 @@ Run from the repository root after initializing the control plane.
 
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
-  CLOUDFLARE_API_TOKEN_FILE=/path/to/cloudflare-token \
+  CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash install-istio-gateway.sh
 ```
 

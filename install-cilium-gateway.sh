@@ -58,8 +58,8 @@ log 'Configure the Cilium LAN pool and L2 announcement policy'
 kubectl apply -f "$MANIFEST_DIR/namespace.yaml"
 kubectl apply -f "$MANIFEST_DIR/lan.yaml"
 
-if [[ -z "$CLOUDFLARE_API_TOKEN_FILE" ]]; then
-  log 'Cilium Gateway API and the LAN pool are ready. Set CLOUDFLARE_API_TOKEN_FILE and ACME_EMAIL to install the HTTPS Gateway.'
+if ! cloudflare_dns01_requested; then
+  log 'Cilium Gateway API and the LAN pool are ready. Set CLOUDFLARE_API_TOKEN and ACME_EMAIL to install the HTTPS Gateway.'
   exit 0
 fi
 

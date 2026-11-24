@@ -16,8 +16,7 @@ The pool and L2 policy select Services in the dedicated `cilium-ingress` namespa
   port in `default`. To move the route and Service together, update the
   HTTPS listener's namespace selector as well.
 - Create a Cloudflare API token with `Zone:DNS:Edit` and `Zone:Zone:Read`
-  for the target zone. Store it in a protected file on the control plane.
-  Configure the application DNS record or upstream proxy separately.
+  for the target zone. Configure the application DNS record or upstream proxy separately.
 
 ## Install
 
@@ -26,7 +25,7 @@ Run from the repository root after `init-k8s.sh`. The installer uses Cilium
 
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
-  CLOUDFLARE_API_TOKEN_FILE=/path/to/cloudflare-token \
+  CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash install-cilium-gateway.sh
 ```
 
