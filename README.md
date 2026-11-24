@@ -4,7 +4,19 @@
 
 Bootstrap a Kubernetes control plane on Debian or Ubuntu with kubeadm, CRI-O, and Cilium. Choose Cilium Gateway API or Istio Gateway API with MetalLB for HTTPS ingress.
 
-Run these commands from a checkout of this repository. Replace `192.168.10.232` with your control-plane node's IPv4 address.
+## Start from the GitHub URL
+
+On each Debian or Ubuntu node, paste this block into Bash to fetch the scripts and manifests together into a temporary directory. Run the remaining commands from that shell.
+
+```bash
+setup_dir=$(mktemp -d) &&
+  (set -o pipefail
+   curl -fsSL https://github.com/daisyorscry/automation/archive/refs/heads/main.tar.gz |
+     tar -xz --strip-components=1 -C "$setup_dir") &&
+  cd "$setup_dir"
+```
+
+Replace `192.168.10.232` below with your control-plane node's IPv4 address.
 
 ## 1. Initialize the Kubernetes control plane
 
@@ -52,7 +64,7 @@ Point your DNS record or upstream proxy at the gateway IP and deploy the backend
 
 ## 3. Join a Kubernetes worker node
 
-On the **worker**, run the commands below. Type `RESET` when prompted to erase any existing Kubernetes state on that node.
+On the **worker**, run [the GitHub setup block](#start-from-the-github-url), then run the commands below. Type `RESET` when prompted to erase any existing Kubernetes state on that node.
 
 ```bash
 sudo bash reset-to-worker.sh
