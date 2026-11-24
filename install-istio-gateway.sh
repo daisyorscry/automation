@@ -13,7 +13,17 @@ GATEWAY_TLS_KEY="${GATEWAY_TLS_KEY:-}"
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 
-for manifest in metallb.yaml namespace.yaml gateway.yaml httproute.yaml; do
+mode="${1:-}"
+case "$mode" in
+  ''|--check|--gateway-only) ;;
+  *) fail 'Usage: bash install-istio-gateway.sh [--check|--gateway-only]' ;;
+esac
+
+manifests=(namespace.yaml gateway.yaml httproute.yaml)
+if [[ "$mode" != --gateway-only ]]; then
+  manifests+=(metallb.yaml)
+fi
+for manifest in "${manifests[@]}"; do
   [[ -r "$MANIFEST_DIR/$manifest" ]] || fail "Missing manifest $MANIFEST_DIR/$manifest. Run from a complete checkout."
 done
 
@@ -29,11 +39,12 @@ if [[ -n "$GATEWAY_TLS_CERT" || -n "$GATEWAY_TLS_KEY" ]]; then
     fail 'Set GATEWAY_TLS_KEY to a readable private key file.'
 fi
 
-case "${1:-}" in
-  --check) exit 0 ;;
-  '') ;;
-  *) fail 'Usage: bash install-istio-gateway.sh [--check]' ;;
-esac
+if [[ "$mode" == --check ]]; then
+  exit 0
+fi
+if [[ "$mode" == --gateway-only ]] && ! cloudflare_dns01_requested && [[ -z "$GATEWAY_TLS_CERT" ]]; then
+  fail 'Set CLOUDFLARE_API_TOKEN and ACME_EMAIL to install the HTTPS Gateway.'
+fi
 
 export KUBECONFIG=/etc/kubernetes/admin.conf
 [[ -r "$KUBECONFIG" ]] || fail "Run on the control plane with sudo and a readable $KUBECONFIG."
@@ -41,40 +52,59 @@ command -v kubectl >/dev/null || fail 'kubectl is required.'
 command -v helm >/dev/null || fail 'Helm is required.'
 kubectl --request-timeout=10s get --raw=/readyz >/dev/null
 
-if [[ "${ALLOW_CONTROL_PLANE_WORKLOADS:-false}" == true ]]; then
-  node="$(kubectl get nodes -o name)"
-  [[ "$node" == node/* && "$node" != *$'\n'* ]] ||
-    fail 'ALLOW_CONTROL_PLANE_WORKLOADS=true requires a single-node cluster.'
-  taint="$(kubectl get "$node" -o 'jsonpath={.spec.taints[?(@.key=="node-role.kubernetes.io/control-plane")].effect}')"
-  if [[ "$taint" == NoSchedule ]]; then
-    log "Allow workloads on $node"
-    kubectl taint "$node" node-role.kubernetes.io/control-plane:NoSchedule-
+if [[ "$mode" == --gateway-only ]]; then
+  source "$ROOT_DIR/lib/ipv4.sh"
+  pool_addresses="$(kubectl -n metallb-system get ipaddresspool.metallb.io lan-pool \
+    -o 'jsonpath={range .spec.addresses[*]}{.}{"\n"}{end}')" ||
+    fail 'Unable to read MetalLB pool lan-pool. Run the Istio control-plane bootstrap first.'
+  requested_ip="$(kubectl create --dry-run=client -f "$MANIFEST_DIR/gateway.yaml" \
+    -o 'jsonpath={.spec.infrastructure.annotations.metallb\.io/loadBalancerIPs}')"
+  requested_address="$(ipv4_number "$requested_ip")" ||
+    fail 'Set an IPv4 address in the Gateway metallb.io/loadBalancerIPs annotation.'
+  in_pool=false
+  while IFS= read -r block; do
+    if ipv4_in_block "$requested_address" "$block"; then
+      in_pool=true
+      break
+    fi
+  done <<< "$pool_addresses"
+  [[ "$in_pool" == true ]] || fail "Gateway IP $requested_ip is outside the existing MetalLB pool lan-pool."
+else
+  if [[ "${ALLOW_CONTROL_PLANE_WORKLOADS:-false}" == true ]]; then
+    node="$(kubectl get nodes -o name)"
+    [[ "$node" == node/* && "$node" != *$'\n'* ]] ||
+      fail 'ALLOW_CONTROL_PLANE_WORKLOADS=true requires a single-node cluster.'
+    taint="$(kubectl get "$node" -o 'jsonpath={.spec.taints[?(@.key=="node-role.kubernetes.io/control-plane")].effect}')"
+    if [[ "$taint" == NoSchedule ]]; then
+      log "Allow workloads on $node"
+      kubectl taint "$node" node-role.kubernetes.io/control-plane:NoSchedule-
+    fi
+    kubectl label "$node" node.kubernetes.io/exclude-from-external-load-balancers-
   fi
-  kubectl label "$node" node.kubernetes.io/exclude-from-external-load-balancers-
+
+  log "Install Gateway API $GATEWAY_API_VERSION"
+  kubectl apply --server-side -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$GATEWAY_API_VERSION/standard-install.yaml"
+  kubectl wait --for=condition=Established --timeout=120s \
+    crd/gatewayclasses.gateway.networking.k8s.io \
+    crd/gateways.gateway.networking.k8s.io \
+    crd/httproutes.gateway.networking.k8s.io
+
+  log "Install MetalLB $METALLB_VERSION and its LAN pool"
+  kubectl apply -f "https://raw.githubusercontent.com/metallb/metallb/$METALLB_VERSION/config/manifests/metallb-native.yaml"
+  kubectl wait --for=condition=Established --timeout=120s \
+    crd/ipaddresspools.metallb.io crd/l2advertisements.metallb.io
+  kubectl -n metallb-system rollout status deployment/controller --timeout=300s
+  kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
+  kubectl apply -f "$MANIFEST_DIR/metallb.yaml"
+
+  log "Install Istio $ISTIO_VERSION"
+  ISTIO_REPO=https://blob.istio.io/istio-release/charts
+  helm upgrade --install istio-base base --repo "$ISTIO_REPO" \
+    --namespace istio-system --create-namespace --version "$ISTIO_VERSION" \
+    --set defaultRevision=default --wait --timeout 5m
+  helm upgrade --install istiod istiod --repo "$ISTIO_REPO" \
+    --namespace istio-system --version "$ISTIO_VERSION" --wait --timeout 5m
 fi
-
-log "Install Gateway API $GATEWAY_API_VERSION"
-kubectl apply --server-side -f "https://github.com/kubernetes-sigs/gateway-api/releases/download/$GATEWAY_API_VERSION/standard-install.yaml"
-kubectl wait --for=condition=Established --timeout=120s \
-  crd/gatewayclasses.gateway.networking.k8s.io \
-  crd/gateways.gateway.networking.k8s.io \
-  crd/httproutes.gateway.networking.k8s.io
-
-log "Install MetalLB $METALLB_VERSION and its LAN pool"
-kubectl apply -f "https://raw.githubusercontent.com/metallb/metallb/$METALLB_VERSION/config/manifests/metallb-native.yaml"
-kubectl wait --for=condition=Established --timeout=120s \
-  crd/ipaddresspools.metallb.io crd/l2advertisements.metallb.io
-kubectl -n metallb-system rollout status deployment/controller --timeout=300s
-kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
-kubectl apply -f "$MANIFEST_DIR/metallb.yaml"
-
-log "Install Istio $ISTIO_VERSION"
-ISTIO_REPO=https://blob.istio.io/istio-release/charts
-helm upgrade --install istio-base base --repo "$ISTIO_REPO" \
-  --namespace istio-system --create-namespace --version "$ISTIO_VERSION" \
-  --set defaultRevision=default --wait --timeout 5m
-helm upgrade --install istiod istiod --repo "$ISTIO_REPO" \
-  --namespace istio-system --version "$ISTIO_VERSION" --wait --timeout 5m
 kubectl wait --for=condition=Accepted --timeout=120s gatewayclass/istio
 
 if ! cloudflare_dns01_requested && [[ -z "$GATEWAY_TLS_CERT" ]]; then

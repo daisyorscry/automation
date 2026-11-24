@@ -13,36 +13,6 @@ case "$1" in
   *) fail "Unknown installer: $1" ;;
 esac
 
-ipv4_number() {
-  local address="$1" octet number=0
-  local -a octets
-  [[ "$address" =~ ^(0|[1-9][0-9]{0,2})(\.(0|[1-9][0-9]{0,2})){3}$ ]] || return 1
-  IFS=. read -r -a octets <<< "$address"
-  for octet in "${octets[@]}"; do
-    (( octet <= 255 )) || return 1
-    number=$((number * 256 + octet))
-  done
-  printf '%s\n' "$number"
-}
-
-start="$(ipv4_number "${LAN_POOL_START:-}")" || fail 'Set LAN_POOL_START to an IPv4 address.'
-end="$(ipv4_number "${LAN_POOL_END:-}")" || fail 'Set LAN_POOL_END to an IPv4 address.'
-(( start <= end )) || fail 'LAN_POOL_END must be at or after LAN_POOL_START.'
-
-if [[ "$1" != init-istio ]]; then
-  gateway="$(ipv4_number "${GATEWAY_IP:-}")" || fail 'Set GATEWAY_IP to an IPv4 address.'
-  (( start <= gateway && gateway <= end )) || fail 'GATEWAY_IP must be inside the LAN pool.'
-  [[ "${APP_HOSTNAME:-}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ && "$APP_HOSTNAME" != *.test ]] ||
-    fail 'Set APP_HOSTNAME to the application hostname in your Cloudflare zone.'
-  [[ "${APP_SERVICE:-}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ && ${#APP_SERVICE} -le 63 ]] ||
-    fail 'Set APP_SERVICE to the backend Service name in the default namespace.'
-  APP_SERVICE_PORT="${APP_SERVICE_PORT:-80}"
-  [[ "$APP_SERVICE_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( APP_SERVICE_PORT <= 65535 )) ||
-    fail 'APP_SERVICE_PORT must be between 1 and 65535.'
-  [[ -n "${ACME_EMAIL:-}" && -n "${CLOUDFLARE_API_TOKEN:-}" ]] ||
-    fail 'Set ACME_EMAIL and CLOUDFLARE_API_TOKEN for HTTPS.'
-fi
-
 ref="${AUTOMATION_REF:-main}"
 [[ "$ref" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ && "$ref" != *..* ]] ||
   fail 'Set AUTOMATION_REF to a Git ref or commit SHA.'
@@ -56,6 +26,31 @@ fetch() {
   curl -fsSL --retry 3 "$raw_url/$path" -o "$work_dir/$path"
 }
 
+fetch lib/ipv4.sh
+source "$work_dir/lib/ipv4.sh"
+
+if [[ "$1" != gateway-istio ]]; then
+  start="$(ipv4_number "${LAN_POOL_START:-}")" || fail 'Set LAN_POOL_START to an IPv4 address.'
+  end="$(ipv4_number "${LAN_POOL_END:-}")" || fail 'Set LAN_POOL_END to an IPv4 address.'
+  (( start <= end )) || fail 'LAN_POOL_END must be at or after LAN_POOL_START.'
+fi
+
+if [[ "$1" != init-istio ]]; then
+  gateway="$(ipv4_number "${GATEWAY_IP:-}")" || fail 'Set GATEWAY_IP to an IPv4 address.'
+  if [[ "$1" == gateway-cilium ]]; then
+    (( start <= gateway && gateway <= end )) || fail 'GATEWAY_IP must be inside the LAN pool.'
+  fi
+  [[ "${APP_HOSTNAME:-}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ && "$APP_HOSTNAME" != *.test ]] ||
+    fail 'Set APP_HOSTNAME to the application hostname in your Cloudflare zone.'
+  [[ "${APP_SERVICE:-}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ && ${#APP_SERVICE} -le 63 ]] ||
+    fail 'Set APP_SERVICE to the backend Service name in the default namespace.'
+  APP_SERVICE_PORT="${APP_SERVICE_PORT:-80}"
+  [[ "$APP_SERVICE_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && (( APP_SERVICE_PORT <= 65535 )) ||
+    fail 'APP_SERVICE_PORT must be between 1 and 65535.'
+  [[ -n "${ACME_EMAIL:-}" && -n "${CLOUDFLARE_API_TOKEN:-}" ]] ||
+    fail 'Set ACME_EMAIL and CLOUDFLARE_API_TOKEN for HTTPS.'
+fi
+
 fetch "$installer"
 fetch lib/cloudflare-dns01.sh
 manifest_dir="manifests/$template"
@@ -68,7 +63,7 @@ if [[ "$template" == cilium-gateway-api ]]; then
   fetch "$manifest_dir/lan.yaml"
   sed -i -e "s/^    - start: .*/    - start: \"$LAN_POOL_START\"/" \
     -e "s/^      stop: .*/      stop: \"$LAN_POOL_END\"/" "$work_dir/$manifest_dir/lan.yaml"
-else
+elif [[ "$1" == init-istio ]]; then
   fetch "$manifest_dir/metallb.yaml"
   sed -i "s/^  - 192\.168\.10\.10-192\.168\.10\.20$/  - $LAN_POOL_START-$LAN_POOL_END/" \
     "$work_dir/$manifest_dir/metallb.yaml"
@@ -84,5 +79,9 @@ else
   sed -i -E -e "s/^([[:space:]]*- )app\.example\.test$/\1$APP_HOSTNAME/" \
     -e "s/^([[:space:]]*- name: )app$/\1$APP_SERVICE/" \
     -e "s/^([[:space:]]*port: )80$/\1$APP_SERVICE_PORT/" "$work_dir/$manifest_dir/httproute.yaml"
-  bash "$work_dir/$installer"
+  if [[ "$1" == gateway-istio ]]; then
+    bash "$work_dir/$installer" --gateway-only
+  else
+    bash "$work_dir/$installer"
+  fi
 fi

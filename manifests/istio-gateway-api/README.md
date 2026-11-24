@@ -25,12 +25,12 @@ For the raw GitHub command, see [Install an HTTPS Gateway](../../README.md#2-ins
 
 ## Install
 
-Run from the repository root after initializing the control plane.
+Run from the repository root after the Istio and MetalLB bootstrap. The Gateway uses the existing MetalLB pool.
 
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
   CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
-  bash install-istio-gateway.sh
+  bash install-istio-gateway.sh --gateway-only
 ```
 
 The installer uses cert-manager and Cloudflare DNS-01 to issue a Let's Encrypt
