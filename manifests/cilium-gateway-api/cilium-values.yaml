@@ -1,0 +1,7 @@
+kubeProxyReplacement: true
+l7Proxy: true
+gatewayAPI:
+  enabled: true
+  externalTrafficPolicy: Cluster
+l2announcements:
+  enabled: true

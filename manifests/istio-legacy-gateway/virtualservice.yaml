@@ -1,0 +1,16 @@
+apiVersion: networking.istio.io/v1
+kind: VirtualService
+metadata:
+  name: app-route
+  namespace: default
+spec:
+  gateways:
+  - istio-ingress/public-gateway
+  hosts:
+  - app.example.test
+  http:
+  - route:
+    - destination:
+        host: app.default.svc.cluster.local
+        port:
+          number: 80
