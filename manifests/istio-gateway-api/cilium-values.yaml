@@ -1,0 +1,8 @@
+# Configure the primary CNI for Istio before the first Cilium agent starts.
+socketLB:
+  hostNamespaceOnly: true
+cni:
+  exclusive: false
+bpf:
+  masquerade: false
+rollOutCiliumPods: true

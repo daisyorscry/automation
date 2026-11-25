@@ -41,7 +41,7 @@ esac
 
 manifests=(namespace.yaml gateway.yaml httproute.yaml)
 if [[ "$mode" != --gateway-only ]]; then
-  manifests+=(metallb.yaml peer-authentication.yaml waypoint.yaml)
+  manifests+=(metallb.yaml peer-authentication.yaml waypoint.yaml cilium-values.yaml)
   validate_ambient_settings
 fi
 for manifest in "${manifests[@]}"; do

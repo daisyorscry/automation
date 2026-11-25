@@ -72,10 +72,12 @@ if (( EUID != 0 )); then
 fi
 
 GATEWAY_INSTALLER=
+CILIUM_HELM_ARGS=(--version "$CILIUM_VERSION" --namespace kube-system --timeout 10m)
 case "${1:-}" in
   --with-istio)
     GATEWAY_INSTALLER="$(dirname -- "${BASH_SOURCE[0]}")/install-istio-gateway.sh"
     bash "$GATEWAY_INSTALLER" --check
+    CILIUM_HELM_ARGS+=(-f "$(dirname -- "${BASH_SOURCE[0]}")/manifests/istio-gateway-api/cilium-values.yaml")
     ;;
   --with-cilium-gateway)
     GATEWAY_INSTALLER="$(dirname -- "${BASH_SOURCE[0]}")/install-cilium-gateway.sh"
@@ -264,13 +266,10 @@ if [[ "$MODE" == repair ]]; then
   # Keep the existing endpoint, pod CIDR, and other release-specific settings.
   helm status cilium --namespace kube-system >/dev/null
   helm upgrade cilium cilium/cilium \
-    --version "$CILIUM_VERSION" --namespace kube-system \
-    --reuse-values --timeout 10m
+    "${CILIUM_HELM_ARGS[@]}" --reuse-values
 else
   helm upgrade --install cilium cilium/cilium \
-    --version "$CILIUM_VERSION" \
-    --namespace kube-system \
-    --timeout 10m \
+    "${CILIUM_HELM_ARGS[@]}" \
     --set kubeProxyReplacement=true \
     --set k8sServiceHost="$CONTROL_PLANE_IP" \
     --set k8sServicePort=6443 \
@@ -278,7 +277,6 @@ else
     --set ipam.mode=cluster-pool \
     --set-json "ipam.operator.clusterPoolIPv4PodCIDRList=[\"$POD_CIDR\"]"
 fi
-
 
 refresh_cni_runtime
 

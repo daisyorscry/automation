@@ -70,6 +70,7 @@ fetch "$installer"
 fetch lib/cloudflare-dns01.sh
 if [[ "$template" == istio-gateway-api ]]; then
   fetch lib/istio-ambient.sh
+  fetch manifests/istio-gateway-api/cilium-values.yaml
   fetch manifests/istio-gateway-api/peer-authentication.yaml
   fetch manifests/istio-gateway-api/waypoint.yaml
 fi

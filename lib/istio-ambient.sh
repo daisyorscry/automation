@@ -42,9 +42,14 @@ configure_ambient_cilium() {
     log 'Configure Cilium for Istio ambient (preserve the installed version and release values)'
     helm upgrade cilium cilium --repo https://helm.cilium.io \
       --namespace kube-system --version "$chart_version" --reuse-values \
-      --set socketLB.hostNamespaceOnly=true --set cni.exclusive=false \
-      --set bpf.masquerade=false --set rollOutCiliumPods=true --wait --timeout 10m
+      -f "$MANIFEST_DIR/cilium-values.yaml" --wait --timeout 10m
     kubectl -n kube-system rollout status daemonset/cilium --timeout=300s
+    log 'Verify Cilium configuration before installing Istio CNI'
+    local settings
+    settings="$(kubectl -n kube-system get configmap cilium-config \
+      -o 'jsonpath={.data.cni-exclusive}{" "}{.data.bpf-lb-sock-hostns-only}{" "}{.data.enable-bpf-masquerade}')"
+    [[ "$settings" == 'false true false' ]] ||
+      fail "Cilium is not configured for Istio: expected exclusive=false, host-only socket LB=true, BPF masquerade=false; got $settings."
   fi
 }
 
@@ -52,6 +57,7 @@ install_ambient_components() {
   log "Install Istio $ISTIO_VERSION ambient mesh"
   local chart
   for chart in base istiod cni ztunnel; do
+    log "Install Istio $ISTIO_VERSION component: $chart"
     case "$chart" in
       base)
         helm upgrade --install istio-base base --repo "$ISTIO_REPO" \

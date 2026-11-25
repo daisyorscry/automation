@@ -27,6 +27,8 @@ sudo env ALLOW_CONTROL_PLANE_WORKLOADS=true CONTROL_PLANE_IP=192.168.10.232 \
 
 Cilium networking + MetalLB LAN IP + Istio Gateway, ambient mesh, STRICT mTLS,
 and L7 waypoints.
+The installer configures Cilium for Istio from the first start and waits for
+networking and mesh readiness before continuing to the HTTPS Gateway.
 
 ```bash
 sudo env ALLOW_CONTROL_PLANE_WORKLOADS=true CONTROL_PLANE_IP=192.168.10.232 \
