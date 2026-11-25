@@ -45,6 +45,11 @@ For either option, apps can be deployed later. Pass `APP_SERVICE` and
 `APP_SERVICE_PORT` (default `80`) to route to an existing Service in `default`.
 Set `GATEWAY_IP` to select an IP inside the pool; Cilium defaults to the first IP.
 
+For a wildcard Gateway and certificate, use `APP_HOSTNAME='*.runvel.dev'` in
+either command. Point wildcard DNS at the Gateway IP. This covers subdomains
+such as `app.runvel.dev`, not `runvel.dev` itself. Create an HTTPRoute per app;
+setting `APP_SERVICE` during setup routes all matching hostnames to that Service.
+
 ## Join workers
 
 On each **worker**, install dependencies and reset old Kubernetes state if present
@@ -105,7 +110,7 @@ GATEWAY_NAMESPACE=istio-ingress bash -c \
 ```
 
 This tests HTTPS using a temporary app, then removes it. Set `APP_HOSTNAME`
-when using a wildcard certificate.
+to a concrete name such as `app.runvel.dev` when using a wildcard certificate.
 
 For Istio, also check:
 

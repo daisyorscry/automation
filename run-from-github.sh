@@ -33,6 +33,8 @@ fetch() {
 
 fetch lib/ipv4.sh
 source "$work_dir/lib/ipv4.sh"
+fetch lib/hostname.sh
+source "$work_dir/lib/hostname.sh"
 
 if [[ "$1" != gateway-istio ]]; then
   start="$(ipv4_number "${LAN_POOL_START:-}")" || fail 'Set LAN_POOL_START to an IPv4 address.'
@@ -51,8 +53,8 @@ if [[ "$1" != init-istio ]]; then
       (( start <= gateway && gateway <= end )) || fail 'GATEWAY_IP must be inside the LAN pool.'
     fi
   fi
-  [[ "${APP_HOSTNAME:-}" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ && "$APP_HOSTNAME" != *.test ]] ||
-    fail 'Set APP_HOSTNAME to the application hostname in your Cloudflare zone.'
+  valid_gateway_hostname "${APP_HOSTNAME:-}" ||
+    fail 'Set APP_HOSTNAME to a hostname or wildcard (for example *.runvel.dev) in your Cloudflare zone.'
   if [[ -n "${APP_SERVICE:-}" ]]; then
     [[ "$APP_SERVICE" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?$ && ${#APP_SERVICE} -le 63 ]] ||
       fail 'Set APP_SERVICE to the backend Service name in the default namespace.'
@@ -97,7 +99,7 @@ if [[ "$1" != init-istio ]]; then
   fi
   route_manifest="$work_dir/$manifest_dir/httproute.yaml"
   if [[ -n "${APP_SERVICE:-}" ]]; then
-    sed -i -E -e "s/^([[:space:]]*- )app\.example\.test$/\1$APP_HOSTNAME/" \
+    sed -i -E -e "s/^([[:space:]]*- )app\.example\.test$/\1\"$APP_HOSTNAME\"/" \
       -e "s/^([[:space:]]*- name: )app$/\1$APP_SERVICE/" \
       -e "s/^([[:space:]]*port: )80$/\1$APP_SERVICE_PORT/" "$route_manifest"
   else
