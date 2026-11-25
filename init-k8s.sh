@@ -297,5 +297,6 @@ kubectl -n kube-system exec daemonset/cilium -- cilium-dbg status --verbose
 log 'Installation complete: Cilium, nodes, and CoreDNS are ready.'
 
 if [[ -n "${GATEWAY_INSTALLER:-}" ]]; then
+  log "Install Gateway components using $(basename -- "$GATEWAY_INSTALLER")"
   bash "$GATEWAY_INSTALLER"
 fi

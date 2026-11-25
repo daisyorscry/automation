@@ -11,8 +11,27 @@ source "$ROOT_DIR/lib/istio-ambient.sh"
 GATEWAY_TLS_CERT="${GATEWAY_TLS_CERT:-}"
 GATEWAY_TLS_KEY="${GATEWAY_TLS_KEY:-}"
 
-log() { printf '\n==> %s\n' "$*"; }
+ISTIO_STAGE='Validate Istio installation settings'
+ISTIO_DIAGNOSTICS=false
+log() { ISTIO_STAGE="$*"; printf '\n==> %s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+
+report_istio_failure() {
+  local status="$1" file="$2" line="$3"
+  trap - ERR
+  if [[ "$ISTIO_DIAGNOSTICS" == true ]]; then
+    kubectl --request-timeout=10s -n istio-system get pods -o wide >&2 || true
+    kubectl --request-timeout=10s -n istio-system describe pods -l k8s-app=istio-cni-node >&2 || true
+    kubectl --request-timeout=10s -n istio-system logs daemonset/istio-cni-node \
+      -c install-cni --tail=80 --prefix >&2 || true
+    kubectl --request-timeout=10s -n istio-system get events \
+      --field-selector type=Warning --sort-by=.lastTimestamp >&2 || true
+  fi
+  printf 'ISTIO ERROR: stage="%s", file=%s, line=%s, exit=%s. Current cluster state is preserved.\n' \
+    "$ISTIO_STAGE" "$file" "$line" "$status" >&2
+  exit "$status"
+}
+trap 'report_istio_failure "$?" "${BASH_SOURCE[0]}" "$LINENO"' ERR
 
 mode="${1:-}"
 case "$mode" in
@@ -53,6 +72,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 command -v kubectl >/dev/null || fail 'kubectl is required.'
 command -v helm >/dev/null || fail 'Helm is required.'
 kubectl --request-timeout=10s get --raw=/readyz >/dev/null
+ISTIO_DIAGNOSTICS=true
 
 if [[ "$mode" == --gateway-only ]]; then
   source "$ROOT_DIR/lib/ipv4.sh"

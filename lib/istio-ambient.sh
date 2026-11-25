@@ -43,7 +43,7 @@ configure_ambient_cilium() {
     helm upgrade cilium cilium --repo https://helm.cilium.io \
       --namespace kube-system --version "$chart_version" --reuse-values \
       --set socketLB.hostNamespaceOnly=true --set cni.exclusive=false \
-      --set bpf.masquerade=false --wait --timeout 10m
+      --set bpf.masquerade=false --set rollOutCiliumPods=true --wait --timeout 10m
     kubectl -n kube-system rollout status daemonset/cilium --timeout=300s
   fi
 }
