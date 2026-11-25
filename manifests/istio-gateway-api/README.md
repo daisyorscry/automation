@@ -58,7 +58,7 @@ configured cluster; it does not install or update the mesh.
 Check the external IP and route from the control plane.
 
 ```bash
-kubectl -n istio-ingress get gateway,svc
+kubectl -n istio-gateway get gateway,svc
 kubectl -n default describe httproute app-route
 ```
 

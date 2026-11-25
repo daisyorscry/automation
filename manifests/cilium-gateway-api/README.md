@@ -1,9 +1,9 @@
-# Cilium Gateway API ingress
+# Cilium Gateway API
 
 This template uses the Cilium release installed by `init-k8s.sh`. Cilium
 creates the gateway LoadBalancer Service and uses Envoy for HTTP routing and
 TLS. LB IPAM allocates the address and L2 Announcements advertises it on the LAN.
-The pool and L2 policy select Services in the dedicated `cilium-ingress` namespace.
+The pool and L2 policy select Services in the dedicated `cilium-gateway` namespace.
 
 For a complete install from GitHub, see the [setup commands](../../README.md). The steps below are for a local checkout.
 
@@ -34,9 +34,9 @@ sudo env ACME_EMAIL=admin@example.com \
 The installer enables Gateway API and L2 Announcements in the existing
 Cilium release and applies the LAN pool. For HTTPS, it uses cert-manager
 to issue a Let's Encrypt certificate for the hostname in `httproute.yaml`
-via Cloudflare DNS-01. It waits for the `ingress-tls` Secret to be issued
+via Cloudflare DNS-01. It waits for the `gateway-tls` Secret to be issued
 before applying the Gateway. An existing cert-manager installation is reused.
-The token and ACME issuer are scoped to `cilium-ingress`.
+The token and ACME issuer are scoped to `cilium-gateway`.
 
 Run `sudo bash install-cilium-gateway.sh` with no variables to prepare
 Cilium Gateway API and the LAN pool before setting up HTTPS.

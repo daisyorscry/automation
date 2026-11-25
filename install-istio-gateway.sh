@@ -8,6 +8,8 @@ GATEWAY_API_VERSION=v1.6.0
 METALLB_VERSION=v0.15.2
 source "$ROOT_DIR/lib/cloudflare-dns01.sh"
 source "$ROOT_DIR/lib/istio-ambient.sh"
+source "$ROOT_DIR/lib/gateway-pool.sh"
+PUBLIC_GATEWAY_NAMESPACE=istio-gateway
 GATEWAY_TLS_CERT="${GATEWAY_TLS_CERT:-}"
 GATEWAY_TLS_KEY="${GATEWAY_TLS_KEY:-}"
 
@@ -31,9 +33,10 @@ report_istio_failure() {
     "$ISTIO_STAGE" "$file" "$line" "$status" >&2
   exit "$status"
 }
-trap 'report_istio_failure "$?" "${BASH_SOURCE[0]}" "$LINENO"' ERR
+trap 'report_istio_failure "$?" "${BASH_SOURC`E[0]}" "$LINENO"' ERR
 
 mode="${1:-}"
+validate_gateway_pool_settings
 case "$mode" in
   ''|--check|--gateway-only) ;;
   *) fail 'Usage: bash install-istio-gateway.sh [--check|--gateway-only]' ;;
@@ -73,6 +76,7 @@ command -v kubectl >/dev/null || fail 'kubectl is required.'
 command -v helm >/dev/null || fail 'Helm is required.'
 kubectl --request-timeout=10s get --raw=/readyz >/dev/null
 ISTIO_DIAGNOSTICS=true
+prepare_public_gateway_manifests istio
 
 if [[ "$mode" == --gateway-only ]]; then
   source "$ROOT_DIR/lib/ipv4.sh"
@@ -92,6 +96,16 @@ if [[ "$mode" == --gateway-only ]]; then
       fi
     done <<< "$pool_addresses"
     [[ "$in_pool" == true ]] || fail "Gateway IP $requested_ip is outside the existing MetalLB pool lan-pool."
+  fi
+  if [[ "${USE_ALL_POOL_IPS:-false}" == true ]]; then
+    for requested_ip in "${gateway_ips[@]}"; do
+      requested_address="$(ipv4_number "$requested_ip")"
+      in_pool=false
+      while IFS= read -r block; do
+        if ipv4_in_block "$requested_address" "$block"; then in_pool=true; break; fi
+      done <<< "$pool_addresses"
+      [[ "$in_pool" == true ]] || fail "Gateway IP $requested_ip is outside the existing MetalLB pool lan-pool."
+    done
   fi
 else
   preflight_ambient_namespaces
@@ -120,7 +134,7 @@ else
     crd/ipaddresspools.metallb.io crd/l2advertisements.metallb.io
   kubectl -n metallb-system rollout status deployment/controller --timeout=300s
   kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
-  kubectl apply -f "$MANIFEST_DIR/metallb.yaml"
+  kubectl apply -f "$gateway_pool_manifest"
 
   ISTIO_REPO=https://blob.istio.io/istio-release/charts
   configure_ambient_cilium
@@ -137,23 +151,20 @@ fi
 log 'Install the HTTPS Gateway and routes'
 kubectl apply -f "$MANIFEST_DIR/namespace.yaml"
 if cloudflare_dns01_requested; then
-  issue_gateway_certificate istio-ingress "$MANIFEST_DIR/httproute.yaml"
+  issue_gateway_certificate istio-gateway "$route_manifest"
 else
-  kubectl -n istio-ingress create secret tls ingress-tls \
+  kubectl -n istio-gateway create secret tls gateway-tls \
     --cert="$GATEWAY_TLS_CERT" --key="$GATEWAY_TLS_KEY" --dry-run=client -o yaml |
     kubectl apply --server-side -f -
-  kubectl apply -f "$MANIFEST_DIR/httproute.yaml"
+  kubectl apply -f "$route_manifest"
 fi
-kubectl apply -f "$MANIFEST_DIR/gateway.yaml"
-kubectl -n istio-ingress wait --for=condition=Programmed --timeout=300s gateways.gateway.networking.k8s.io/public-gateway
-kubectl -n istio-ingress rollout status deployment/public-gateway-istio --timeout=300s
-kubectl -n istio-ingress wait --for='jsonpath={.status.loadBalancer.ingress[0].ip}' \
-  --timeout=120s service/public-gateway-istio
+kubectl apply -f "$gateway_manifest"
+wait_for_public_gateways istio
 log 'Final cluster status'
 kubectl get nodes -o wide
 kubectl get pods -A -o wide
 log 'Gateway external IP'
-kubectl -n istio-ingress get service public-gateway-istio -o wide
+kubectl -n istio-gateway get gateway,service -o wide
 if [[ "$mode" != --gateway-only ]]; then
   printf '\nAmbient mesh and STRICT mTLS configured in: %s\n' "${mesh_namespaces[*]}"
 fi

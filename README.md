@@ -12,12 +12,12 @@ Before running:
 
 ## Cilium Gateway — without Istio
 
-Cilium handles networking, LAN load balancing, and HTTP/HTTPS ingress.
+Cilium handles networking, LAN load balancing, and HTTP/HTTPS Gateway routing.
 This option does not configure service mesh or workload mTLS.
 
 ```bash
 sudo env ALLOW_CONTROL_PLANE_WORKLOADS=true CONTROL_PLANE_IP=192.168.10.232 \
-  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 \
+  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 USE_ALL_POOL_IPS=false \
   APP_HOSTNAME=app.example.com \
   ACME_EMAIL=admin@example.com CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- init-cilium-gateway'
@@ -32,7 +32,7 @@ networking and mesh readiness before continuing to the HTTPS Gateway.
 
 ```bash
 sudo env ALLOW_CONTROL_PLANE_WORKLOADS=true CONTROL_PLANE_IP=192.168.10.232 \
-  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 \
+  LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 USE_ALL_POOL_IPS=false \
   APP_HOSTNAME=app.example.com \
   ACME_EMAIL=admin@example.com CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- init-istio-gateway'
@@ -46,6 +46,8 @@ sudo env ALLOW_CONTROL_PLANE_WORKLOADS=true CONTROL_PLANE_IP=192.168.10.232 \
 For either option, apps can be deployed later. Pass `APP_SERVICE` and
 `APP_SERVICE_PORT` (default `80`) to route to an existing Service in `default`.
 Set `GATEWAY_IP` to select an IP inside the pool; Cilium defaults to the first IP.
+`USE_ALL_POOL_IPS=false` (default): one Gateway. Set `true` for one Gateway per
+pool IP, sharing the hostname, TLS, and routes. DNS is configured separately.
 
 For a wildcard Gateway and certificate, use `APP_HOSTNAME='*.runvel.dev'` in
 either command. Point wildcard DNS at the Gateway IP. This covers subdomains
@@ -104,7 +106,7 @@ Drain restarts workloads and discards their `emptyDir` data. Local persistent
 volumes need separate migration. If blocked by a disruption budget, resolve it
 before continuing. Control-plane static pods and system DaemonSets remain.
 
-For MetalLB, also stop advertising ingress IPs from the master:
+For MetalLB, also stop advertising Gateway IPs from the master:
 
 ```bash
 kubectl label node "$MASTER_NODE" node.kubernetes.io/exclude-from-external-load-balancers=true --overwrite
@@ -112,11 +114,11 @@ kubectl label node "$MASTER_NODE" node.kubernetes.io/exclude-from-external-load-
 
 ## Verify
 
-On the control plane, after nodes are ready. Use `cilium-ingress` for Cilium
-or `istio-ingress` for Istio:
+On the control plane, after nodes are ready. Use `cilium-gateway` for Cilium
+or `istio-gateway` for Istio:
 
 ```bash
-GATEWAY_NAMESPACE=istio-ingress bash -c \
+GATEWAY_NAMESPACE=istio-gateway bash -c \
   'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/verify-cluster.sh) && bash -c "$script"'
 ```
 

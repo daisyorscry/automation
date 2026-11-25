@@ -5,7 +5,7 @@ metadata:
   namespace: default
 spec:
   gateways:
-  - istio-ingress/public-gateway
+  - istio-gateway/public-gateway
   hosts:
   - app.example.test
   http:

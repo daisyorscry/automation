@@ -35,6 +35,12 @@ fetch lib/ipv4.sh
 source "$work_dir/lib/ipv4.sh"
 fetch lib/hostname.sh
 source "$work_dir/lib/hostname.sh"
+fetch lib/gateway-pool.sh
+source "$work_dir/lib/gateway-pool.sh"
+validate_gateway_pool_settings
+if [[ "$1" == init-istio && "${USE_ALL_POOL_IPS:-false}" == true ]]; then
+  fail 'Use init-istio-gateway to create Gateways for all pool IPs.'
+fi
 
 if [[ "$1" != gateway-istio ]]; then
   start="$(ipv4_number "${LAN_POOL_START:-}")" || fail 'Set LAN_POOL_START to an IPv4 address.'
@@ -43,7 +49,7 @@ if [[ "$1" != gateway-istio ]]; then
 fi
 
 if [[ "$1" != init-istio ]]; then
-  if [[ "$template" == cilium-gateway-api ]]; then
+  if [[ "$template" == cilium-gateway-api && "${USE_ALL_POOL_IPS:-false}" != true ]]; then
     GATEWAY_IP="${GATEWAY_IP:-$LAN_POOL_START}"
     gateway="$(ipv4_number "$GATEWAY_IP")" || fail 'Set GATEWAY_IP to an IPv4 address.'
     (( start <= gateway && gateway <= end )) || fail 'GATEWAY_IP must be inside the LAN pool.'
@@ -93,7 +99,7 @@ fi
 if [[ "$1" != init-istio ]]; then
   gateway_manifest="$work_dir/$manifest_dir/gateway.yaml"
   sed -i -E "s/^([[:space:]]*hostname:).*/\1 \"$APP_HOSTNAME\"/" "$gateway_manifest"
-  if [[ "$template" == cilium-gateway-api ]]; then
+  if [[ "$template" == cilium-gateway-api && "${USE_ALL_POOL_IPS:-false}" != true ]]; then
     sed -i -E "s/^([[:space:]]*value:) .*/\1 \"$GATEWAY_IP\"/" "$gateway_manifest"
   elif [[ -n "${GATEWAY_IP:-}" ]]; then
     sed -i "/metallb\.io\/address-pool:/a\      metallb.io/loadBalancerIPs: \"$GATEWAY_IP\"" "$gateway_manifest"

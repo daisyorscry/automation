@@ -1,3 +1,5 @@
+labels:
+  istio: gateway
 service:
   type: LoadBalancer
   annotations:

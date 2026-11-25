@@ -72,10 +72,10 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: ingress-tls
+  name: gateway-tls
   namespace: "$gateway_namespace"
 spec:
-  secretName: ingress-tls
+  secretName: gateway-tls
   dnsNames:
     - "$hostname"
   issuerRef:
@@ -84,5 +84,5 @@ spec:
 MANIFEST
 
   log "Wait for Let's Encrypt to issue the certificate"
-  kubectl -n "$gateway_namespace" wait --for=condition=Ready --timeout=600s certificate/ingress-tls
+  kubectl -n "$gateway_namespace" wait --for=condition=Ready --timeout=600s certificate/gateway-tls
 }

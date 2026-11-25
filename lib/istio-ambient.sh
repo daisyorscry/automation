@@ -8,7 +8,7 @@ validate_ambient_settings() {
     [[ "$namespace" =~ ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$ && ${#namespace} -le 63 ]] ||
       fail "Invalid mesh namespace: $namespace"
     case "$namespace" in
-      kube-*|istio-system|istio-ingress|metallb-system|cert-manager)
+      kube-*|istio-system|istio-gateway|cilium-gateway|metallb-system|cert-manager)
         fail "Choose application namespaces for the mesh, not $namespace." ;;
     esac
   done

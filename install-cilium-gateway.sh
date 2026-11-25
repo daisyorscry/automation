@@ -6,6 +6,8 @@ MANIFEST_DIR="$ROOT_DIR/manifests/cilium-gateway-api"
 CILIUM_VERSION=1.19.10
 GATEWAY_API_VERSION=v1.4.1
 source "$ROOT_DIR/lib/cloudflare-dns01.sh"
+source "$ROOT_DIR/lib/gateway-pool.sh"
+PUBLIC_GATEWAY_NAMESPACE=cilium-gateway
 
 log() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
@@ -19,6 +21,7 @@ for manifest in cilium-values.yaml lan.yaml namespace.yaml gateway.yaml httprout
 done
 
 validate_cloudflare_dns01
+validate_gateway_pool_settings
 if [[ "${1:-}" == --check ]]; then
   exit 0
 fi
@@ -28,6 +31,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 command -v kubectl >/dev/null || fail 'kubectl is required.'
 command -v helm >/dev/null || fail 'Helm is required.'
 kubectl --request-timeout=10s get --raw=/readyz >/dev/null
+prepare_public_gateway_manifests cilium
 
 release="$(helm list --namespace kube-system --filter '^cilium$' -o yaml)"
 installed_chart="$(awk '$1 == "chart:" {print $2} $1 == "-" && $2 == "chart:" {print $3}' <<< "$release")"
@@ -72,23 +76,21 @@ kubectl wait --for=condition=Established --timeout=120s \
 
 log 'Configure the Cilium LAN pool and L2 announcement policy'
 kubectl apply -f "$MANIFEST_DIR/namespace.yaml"
-kubectl apply -f "$MANIFEST_DIR/lan.yaml"
+kubectl apply -f "$gateway_pool_manifest"
 
 if ! cloudflare_dns01_requested; then
   log 'Cilium Gateway API and the LAN pool are ready. Set CLOUDFLARE_API_TOKEN and ACME_EMAIL to install the HTTPS Gateway.'
   exit 0
 fi
 
-issue_gateway_certificate cilium-ingress "$MANIFEST_DIR/httproute.yaml"
+issue_gateway_certificate cilium-gateway "$route_manifest"
 
 log 'Install the HTTPS Gateway'
-kubectl apply -f "$MANIFEST_DIR/gateway.yaml"
-kubectl -n cilium-ingress wait --for=condition=Programmed --timeout=300s gateways.gateway.networking.k8s.io/public-gateway
-kubectl -n cilium-ingress wait --for='jsonpath={.status.addresses[0].value}' \
-  --timeout=120s gateways.gateway.networking.k8s.io/public-gateway
+kubectl apply -f "$gateway_manifest"
+wait_for_public_gateways cilium
 log 'Final cluster status'
 kubectl get nodes -o wide
 kubectl get pods -A -o wide
 log 'Gateway external IP'
-kubectl -n cilium-ingress get gateway,svc -o wide
+kubectl -n cilium-gateway get gateway,svc -o wide
 log 'Installation complete: all requested components are ready.'

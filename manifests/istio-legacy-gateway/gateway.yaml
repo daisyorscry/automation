@@ -2,10 +2,10 @@ apiVersion: networking.istio.io/v1
 kind: Gateway
 metadata:
   name: public-gateway
-  namespace: istio-ingress
+  namespace: istio-gateway
 spec:
   selector:
-    istio: ingressgateway
+    istio: gateway
   servers:
   - hosts:
     - '*.example.test'
@@ -22,5 +22,5 @@ spec:
       number: 443
       protocol: HTTPS
     tls:
-      credentialName: ingress-tls
+      credentialName: gateway-tls
       mode: SIMPLE
