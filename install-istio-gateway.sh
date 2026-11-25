@@ -7,6 +7,7 @@ ISTIO_VERSION=1.31.4
 GATEWAY_API_VERSION=v1.6.0
 METALLB_VERSION=v0.15.2
 source "$ROOT_DIR/lib/cloudflare-dns01.sh"
+source "$ROOT_DIR/lib/istio-ambient.sh"
 GATEWAY_TLS_CERT="${GATEWAY_TLS_CERT:-}"
 GATEWAY_TLS_KEY="${GATEWAY_TLS_KEY:-}"
 
@@ -21,7 +22,8 @@ esac
 
 manifests=(namespace.yaml gateway.yaml httproute.yaml)
 if [[ "$mode" != --gateway-only ]]; then
-  manifests+=(metallb.yaml)
+  manifests+=(metallb.yaml peer-authentication.yaml waypoint.yaml)
+  validate_ambient_settings
 fi
 for manifest in "${manifests[@]}"; do
   [[ -r "$MANIFEST_DIR/$manifest" ]] || fail "Missing manifest $MANIFEST_DIR/$manifest. Run from a complete checkout."
@@ -72,6 +74,7 @@ if [[ "$mode" == --gateway-only ]]; then
     [[ "$in_pool" == true ]] || fail "Gateway IP $requested_ip is outside the existing MetalLB pool lan-pool."
   fi
 else
+  preflight_ambient_namespaces
   if [[ "${ALLOW_CONTROL_PLANE_WORKLOADS:-false}" == true ]]; then
     node="$(kubectl get nodes -o name)"
     [[ "$node" == node/* && "$node" != *$'\n'* ]] ||
@@ -99,18 +102,15 @@ else
   kubectl -n metallb-system rollout status daemonset/speaker --timeout=300s
   kubectl apply -f "$MANIFEST_DIR/metallb.yaml"
 
-  log "Install Istio $ISTIO_VERSION"
   ISTIO_REPO=https://blob.istio.io/istio-release/charts
-  helm upgrade --install istio-base base --repo "$ISTIO_REPO" \
-    --namespace istio-system --create-namespace --version "$ISTIO_VERSION" \
-    --set defaultRevision=default --wait --timeout 5m
-  helm upgrade --install istiod istiod --repo "$ISTIO_REPO" \
-    --namespace istio-system --version "$ISTIO_VERSION" --wait --timeout 5m
+  configure_ambient_cilium
+  install_ambient_components
+  enroll_ambient_namespaces
 fi
 kubectl wait --for=condition=Accepted --timeout=120s gatewayclass/istio
 
 if ! cloudflare_dns01_requested && [[ -z "$GATEWAY_TLS_CERT" ]]; then
-  log 'Istio and MetalLB are ready. Set CLOUDFLARE_API_TOKEN and ACME_EMAIL to install the HTTPS Gateway.'
+  log 'Istio ambient mesh, STRICT mTLS, and MetalLB are ready. Set CLOUDFLARE_API_TOKEN and ACME_EMAIL to install the HTTPS Gateway.'
   exit 0
 fi
 

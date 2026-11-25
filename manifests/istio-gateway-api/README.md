@@ -1,4 +1,4 @@
-# Istio ingress with Kubernetes Gateway API
+# Istio ambient mesh and Gateway API
 
 This template uses Istio to provision the gateway Deployment and Service.
 MetalLB allocates and announces the Service IP on the LAN.
@@ -24,18 +24,36 @@ For a complete install from GitHub, see the [setup commands](../../README.md). T
 
 ## Install
 
-Run from the repository root after the Istio and MetalLB bootstrap. The Gateway uses the existing MetalLB pool.
+Use the [single setup command](../../README.md#install-the-cluster-mesh-and-gateway).
+It installs the cluster, Istio ambient components, MetalLB, STRICT mTLS, a
+namespace waypoint, and the HTTPS Gateway. Do not run a second Gateway installer.
+
+For a local checkout, after configuring the manifests above:
 
 ```bash
 sudo env ACME_EMAIL=admin@example.com \
   CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
-  bash install-istio-gateway.sh --gateway-only
+  bash init-k8s.sh --with-istio
 ```
 
+Add `ALLOW_CONTROL_PLANE_WORKLOADS=true` for a single-node cluster and set
+`CONTROL_PLANE_IP` to the node address. Use `MESH_NAMESPACES='default backend'`
+to select application namespaces (default: `default`). Other namespaces are not
+enrolled. `ENABLE_MESH_WAYPOINT=false` skips L7 waypoints for a fresh install;
+it does not remove existing waypoints or labels.
+
+Istio CNI and ztunnel provide ambient mTLS; namespace-scoped PeerAuthentication
+requires STRICT mTLS. A waypoint handles service-level L7 traffic. The installer
+configures Cilium CNI chaining and host-only socket load balancing while keeping
+its installed version. Namespaces with sidecar injection or existing sidecars
+must be migrated first. Traffic authorization rules depend on your application
+and are not generated automatically.
+
 The installer uses cert-manager and Cloudflare DNS-01 to issue a Let's Encrypt
-certificate for the hostname in `httproute.yaml`. It waits for the certificate
-before applying the HTTPS Gateway. Run without the two variables to install
-Istio and MetalLB ahead of the HTTPS Gateway.
+certificate. Run `bash install-istio-gateway.sh` without TLS variables to install
+the mesh and MetalLB on an existing cluster before adding the HTTPS Gateway.
+The `--gateway-only` option is retained for updating the Gateway on an already
+configured cluster; it does not install or update the mesh.
 
 Check the external IP and route from the control plane.
 
