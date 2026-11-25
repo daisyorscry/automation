@@ -66,6 +66,11 @@ fi
 
 fetch "$installer"
 fetch lib/cloudflare-dns01.sh
+if [[ "$template" == istio-gateway-api ]]; then
+  fetch lib/istio-ambient.sh
+  fetch manifests/istio-gateway-api/peer-authentication.yaml
+  fetch manifests/istio-gateway-api/waypoint.yaml
+fi
 manifest_dir="manifests/$template"
 for file in namespace.yaml gateway.yaml httproute.yaml; do
   fetch "$manifest_dir/$file"

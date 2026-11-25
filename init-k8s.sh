@@ -261,6 +261,18 @@ else
     --set-json "ipam.operator.clusterPoolIPv4PodCIDRList=[\"$POD_CIDR\"]"
 fi
 
+if [[ "${ALLOW_CONTROL_PLANE_WORKLOADS:-false}" == true ]]; then
+  node="$(kubectl get nodes -o name)"
+  [[ "$node" == node/* && "$node" != *$'\n'* ]] || {
+    echo 'ALLOW_CONTROL_PLANE_WORKLOADS=true requires a single-node cluster.' >&2
+    exit 1
+  }
+  taint="$(kubectl get "$node" -o 'jsonpath={.spec.taints[?(@.key=="node-role.kubernetes.io/control-plane")].effect}')"
+  if [[ "$taint" == NoSchedule ]]; then
+    kubectl taint "$node" node-role.kubernetes.io/control-plane:NoSchedule-
+  fi
+fi
+
 refresh_cni_runtime
 
 log 'Worker join command (run on workers with sudo and append --cri-socket unix:///var/run/crio/crio.sock)'

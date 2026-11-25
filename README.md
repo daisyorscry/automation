@@ -1,81 +1,119 @@
-<img src="https://raw.githubusercontent.com/cncf/artwork/main/projects/kubernetes/icon/color/kubernetes-icon-color.svg" alt="Kubernetes logo" width="96">
+# Kubernetes with Cilium or Istio Gateway
 
-# Kubernetes Cluster Setup with kubeadm, Cilium, and Istio
+Kubernetes on Debian/Ubuntu with kubeadm, CRI-O, and Cilium networking.
+Choose **one** option below; each installs the cluster and HTTPS Gateway.
 
-Bootstrap a Kubernetes control plane on Debian or Ubuntu with kubeadm, CRI-O, and Cilium. Choose Cilium Gateway API or Istio Gateway API with MetalLB for HTTPS ingress.
+Before running:
 
-Run the commands directly from GitHub. Replace `192.168.10.232` below with your control-plane node's IPv4 address.
+- Replace the control-plane IP, hostname, email, and Cloudflare token.
+- Reserve a free LAN pool outside DHCP. The token needs DNS edit and zone read permissions.
+- Commands below temporarily allow workloads on the master so setup finishes before workers join.
+- Existing cluster: choose `repair`. `force` deletes cluster state; workers must rejoin.
 
-Choose one control-plane setup. Set a free LAN pool outside DHCP, a hostname in
-your Cloudflare zone, and a Cloudflare token with DNS edit and zone read permissions. For a single-node cluster, add `ALLOW_CONTROL_PLANE_WORKLOADS=true`
-after `sudo env`. If setup is waiting for a worker, go to [Join a worker](#join-a-kubernetes-worker-node).
+## Cilium Gateway — without Istio
 
-## 1. Install Cilium and Cilium Gateway
-
-Cilium uses the first IP in the pool by default.
+Cilium handles networking, LAN load balancing, and HTTP/HTTPS ingress.
+This option does not configure service mesh or workload mTLS.
 
 ```bash
-sudo env CONTROL_PLANE_IP=192.168.10.232 \
+sudo env ALLOW_CONTROL_PLANE_WORKLOADS=true CONTROL_PLANE_IP=192.168.10.232 \
   LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 \
   APP_HOSTNAME=app.example.com \
   ACME_EMAIL=admin@example.com CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- init-cilium-gateway'
 ```
 
-## 2. Install Istio, MetalLB, and Istio Gateway
+## Install the cluster, mesh, and Gateway
 
-Cilium handles pod networking. MetalLB assigns the Gateway IP from the pool.
+Cilium networking + MetalLB LAN IP + Istio Gateway, ambient mesh, STRICT mTLS,
+and L7 waypoints.
 
 ```bash
-sudo env CONTROL_PLANE_IP=192.168.10.232 \
+sudo env ALLOW_CONTROL_PLANE_WORKLOADS=true CONTROL_PLANE_IP=192.168.10.232 \
   LAN_POOL_START=192.168.10.10 LAN_POOL_END=192.168.10.20 \
   APP_HOSTNAME=app.example.com \
   ACME_EMAIL=admin@example.com CLOUDFLARE_API_TOKEN='your-cloudflare-token' \
   bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/run-from-github.sh) && bash -c "$script" -- init-istio-gateway'
 ```
 
-The Gateway and TLS certificate can be installed before any app. If your Service
-already exists in `default`, pass `APP_SERVICE` and optionally
-`APP_SERVICE_PORT` (default `80`) to create its route during setup.
+- Mesh defaults to `default`. Set `MESH_NAMESPACES='default backend'` to select namespaces.
+- Existing sidecars must be migrated; pods with mesh opt-out or host networking are not covered automatically.
+- STRICT rejects plaintext. Use `AuthorizationPolicy` to restrict access between mesh identities.
+- Optional: `ENABLE_MESH_WAYPOINT=false` skips creating L7 waypoints.
 
-## Join a Kubernetes worker node
+For either option, apps can be deployed later. Pass `APP_SERVICE` and
+`APP_SERVICE_PORT` (default `80`) to route to an existing Service in `default`.
+Set `GATEWAY_IP` to select an IP inside the pool; Cilium defaults to the first IP.
 
-On the **worker**, run the reset script directly from GitHub. Type `RESET` when prompted to erase any existing Kubernetes state on that node, then reboot.
+## Join workers
+
+On each **worker**, install dependencies and reset old Kubernetes state if present
+(type `RESET` to confirm deletion), then reboot.
 
 ```bash
-sudo bash -c \
-  'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/reset-to-worker.sh) && bash -c "$script"'
+sudo bash -c 'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/reset-to-worker.sh) && bash -c "$script"'
 sudo reboot
 ```
 
-On the **control plane**, print a fresh join command:
+On the **control plane**, generate the join command:
 
 ```bash
 sudo kubeadm token create --print-join-command
 ```
 
-After reboot, run the printed `kubeadm join` command on the **worker** with `sudo` and append `--cri-socket unix:///var/run/crio/crio.sock`. Verify the worker from the control plane with `kubectl get nodes`.
+Run the printed command on each prepared worker with `sudo` and append
+`--cri-socket unix:///var/run/crio/crio.sock`. Confirm with `kubectl get nodes`.
 
-## Verify the cluster and HTTPS Gateway
+## Isolate the master after workers join
 
-Run on the control plane after the worker is `Ready`.
-
-**Cilium Gateway and L2 Announcements**
+Run on the control plane. Replace both node names; ensure workers have enough capacity.
 
 ```bash
-GATEWAY_NAMESPACE=cilium-ingress bash -c \
-  'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/verify-cluster.sh) && bash -c "$script"'
+MASTER_NODE=runvel-workspace-master
+WORKER_NODE=your-worker-name
+kubectl wait --for=condition=Ready "node/$WORKER_NODE" --timeout=300s
+kubectl taint node "$MASTER_NODE" node-role.kubernetes.io/control-plane:NoSchedule --overwrite
 ```
 
-**Istio Gateway and MetalLB**
+This blocks new ordinary workloads on the master. To move existing workloads too:
+
+```bash
+kubectl drain "$MASTER_NODE" --ignore-daemonsets --delete-emptydir-data --timeout=10m
+# Run only after drain succeeds; the NoSchedule taint stays in place.
+kubectl uncordon "$MASTER_NODE"
+kubectl get pods -A -o wide
+```
+
+Drain restarts workloads and discards their `emptyDir` data. Local persistent
+volumes need separate migration. If blocked by a disruption budget, resolve it
+before continuing. Control-plane static pods and system DaemonSets remain.
+
+For MetalLB, also stop advertising ingress IPs from the master:
+
+```bash
+kubectl label node "$MASTER_NODE" node.kubernetes.io/exclude-from-external-load-balancers=true --overwrite
+```
+
+## Verify
+
+On the control plane, after nodes are ready. Use `cilium-ingress` for Cilium
+or `istio-ingress` for Istio:
 
 ```bash
 GATEWAY_NAMESPACE=istio-ingress bash -c \
   'script=$(curl -fsSL https://raw.githubusercontent.com/daisyorscry/automation/main/verify-cluster.sh) && bash -c "$script"'
 ```
 
-Each command checks its Gateway controller and load balancer, then deploys a
-temporary app, tests HTTPS, and removes the test resources. For a wildcard
-listener, set `APP_HOSTNAME` to a hostname covered by the certificate.
+This tests HTTPS using a temporary app, then removes it. Set `APP_HOSTNAME`
+when using a wildcard certificate.
 
-[Legacy Istio Gateway and VirtualService manifests](manifests/istio-legacy-gateway)
+For Istio, also check:
+
+```bash
+kubectl -n istio-system get pods
+kubectl get namespaces -L istio.io/dataplane-mode,istio.io/use-waypoint
+kubectl -n default get peerauthentication default -o yaml
+```
+
+Confirm mesh-to-mesh traffic works and plaintext clients are rejected;
+component readiness alone does not verify mTLS traffic.
