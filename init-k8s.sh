@@ -288,13 +288,16 @@ kubectl -n kube-system rollout status daemonset/cilium --timeout=300s
 kubectl -n kube-system rollout status deployment/cilium-operator --timeout=300s
 kubectl wait --for=condition=Ready node --all --timeout=300s
 kubectl -n kube-system rollout status deployment/coredns --timeout=300s
-kubectl get nodes -o wide
-kubectl get pods -n kube-system
 kubectl -n kube-system exec daemonset/cilium -- cilium-dbg status --verbose
 
-log 'Installation complete: Cilium, nodes, and CoreDNS are ready.'
+log 'Kubernetes networking is ready: Cilium, nodes, and CoreDNS passed readiness checks.'
 
 if [[ -n "${GATEWAY_INSTALLER:-}" ]]; then
   log "Install Gateway components using $(basename -- "$GATEWAY_INSTALLER")"
   bash "$GATEWAY_INSTALLER"
+else
+  log 'Final cluster status'
+  kubectl get nodes -o wide
+  kubectl get pods -A -o wide
+  log 'Installation complete: Kubernetes and Cilium are ready.'
 fi

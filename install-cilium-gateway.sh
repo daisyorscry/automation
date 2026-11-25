@@ -86,4 +86,9 @@ kubectl apply -f "$MANIFEST_DIR/gateway.yaml"
 kubectl -n cilium-ingress wait --for=condition=Programmed --timeout=300s gateways.gateway.networking.k8s.io/public-gateway
 kubectl -n cilium-ingress wait --for='jsonpath={.status.addresses[0].value}' \
   --timeout=120s gateways.gateway.networking.k8s.io/public-gateway
-kubectl -n cilium-ingress get gateway,svc
+log 'Final cluster status'
+kubectl get nodes -o wide
+kubectl get pods -A -o wide
+log 'Gateway external IP'
+kubectl -n cilium-ingress get gateway,svc -o wide
+log 'Installation complete: all requested components are ready.'

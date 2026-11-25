@@ -149,4 +149,12 @@ kubectl -n istio-ingress wait --for=condition=Programmed --timeout=300s gateways
 kubectl -n istio-ingress rollout status deployment/public-gateway-istio --timeout=300s
 kubectl -n istio-ingress wait --for='jsonpath={.status.loadBalancer.ingress[0].ip}' \
   --timeout=120s service/public-gateway-istio
-kubectl -n istio-ingress get service public-gateway-istio
+log 'Final cluster status'
+kubectl get nodes -o wide
+kubectl get pods -A -o wide
+log 'Gateway external IP'
+kubectl -n istio-ingress get service public-gateway-istio -o wide
+if [[ "$mode" != --gateway-only ]]; then
+  printf '\nAmbient mesh and STRICT mTLS configured in: %s\n' "${mesh_namespaces[*]}"
+fi
+log 'Installation complete: all requested components are ready.'
