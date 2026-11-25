@@ -50,6 +50,15 @@ either command. Point wildcard DNS at the Gateway IP. This covers subdomains
 such as `app.runvel.dev`, not `runvel.dev` itself. Create an HTTPRoute per app;
 setting `APP_SERVICE` during setup routes all matching hostnames to that Service.
 
+## Resume an interrupted install
+
+- Re-run the same installation command with the node's actual `CONTROL_PLANE_IP`.
+- Keep `ALLOW_CONTROL_PLANE_WORKLOADS=true` while the master is the only node.
+- Choose **`repair`** to preserve the cluster and retry Gateway/mesh setup.
+- Early `NotReady` warnings can clear while Cilium starts. Check `kubectl get nodes`
+  and `kubectl -n kube-system get pods`; do not choose `force` just to retry.
+- If it fails again, capture `ERROR: Failed at line ...` and the preceding error.
+
 ## Join workers
 
 On each **worker**, install dependencies and reset old Kubernetes state if present
