@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/hostname.sh"
+
 CERT_MANAGER_VERSION=v1.20.4
 cloudflare_api_token="${CLOUDFLARE_API_TOKEN:-}"
 unset CLOUDFLARE_API_TOKEN
@@ -33,8 +35,8 @@ issue_gateway_certificate() {
   if [[ -z "$hostname" ]]; then
     hostname="$(kubectl -n default get httproute app-route -o 'jsonpath={.spec.hostnames[0]}')"
   fi
-  [[ "$hostname" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ && "$hostname" != *.test ]] ||
-    fail 'Use a public hostname in your Cloudflare zone for the Gateway certificate.'
+  valid_gateway_hostname "$hostname" ||
+    fail 'Use a public hostname or wildcard (for example *.runvel.dev) in your Cloudflare zone.'
 
   token_data="$(printf '%s' "$cloudflare_api_token" | base64 -w 0)"
   kubectl apply --server-side -f - <<SECRET
