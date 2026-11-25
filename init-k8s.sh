@@ -254,7 +254,7 @@ if [[ "${ALLOW_CONTROL_PLANE_WORKLOADS:-false}" == true ]]; then
   }
   taint="$(kubectl get "$node" -o 'jsonpath={.spec.taints[?(@.key=="node-role.kubernetes.io/control-plane")].effect}')"
   if [[ "$taint" == NoSchedule ]]; then
-    kubectl taint "$node" node-role.kubernetes.io/control-plane:NoSchedule-
+    kubectl taint nodes "${node#node/}" node-role.kubernetes.io/control-plane:NoSchedule-
   fi
 fi
 

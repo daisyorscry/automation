@@ -82,7 +82,7 @@ else
     taint="$(kubectl get "$node" -o 'jsonpath={.spec.taints[?(@.key=="node-role.kubernetes.io/control-plane")].effect}')"
     if [[ "$taint" == NoSchedule ]]; then
       log "Allow workloads on $node"
-      kubectl taint "$node" node-role.kubernetes.io/control-plane:NoSchedule-
+      kubectl taint nodes "${node#node/}" node-role.kubernetes.io/control-plane:NoSchedule-
     fi
     kubectl label "$node" node.kubernetes.io/exclude-from-external-load-balancers-
   fi
