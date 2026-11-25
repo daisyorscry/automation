@@ -8,23 +8,27 @@ CONTROL_PLANE_IP="${CONTROL_PLANE_IP:-192.168.10.232}"
 POD_CIDR="${POD_CIDR:-10.244.0.0/16}"
 CRIO_SOCKET="unix:///var/run/crio/crio.sock"
 
-log() { printf '\n==> %s\n' "$*"; }
+CURRENT_STAGE='Startup validation'
+log() { CURRENT_STAGE="$*"; printf '\n==> %s\n' "$*"; }
 wait_for_api() {
-  local attempt
+  local attempt consecutive=0
   for ((attempt=0; attempt<30; attempt++)); do
     if kubectl --request-timeout=5s get --raw=/readyz >/dev/null 2>&1; then
-      return 0
+      consecutive=$((consecutive + 1))
+      (( consecutive < 3 )) || return 0
+    else
+      consecutive=0
     fi
     sleep 2
   done
-  echo 'API server is not ready. Inspect kubelet and CRI-O logs below.' >&2
+  echo 'API server did not remain ready for three consecutive checks. Inspect kubelet and CRI-O logs below.' >&2
   return 1
 }
 
 refresh_cni_runtime() {
   local attempt
   log 'Wait for Cilium to write the local CNI configuration'
-  for ((attempt=0; attempt<60; attempt++)); do
+  for ((attempt=0; attempt<300; attempt++)); do
     [[ ! -s /etc/cni/net.d/05-cilium.conflist ]] || break
     sleep 2
   done
@@ -56,6 +60,8 @@ report_failure() {
     journalctl -u kubelet -u crio -n 50 --no-pager >&2 || true
   fi
   echo 'Inspect the error above; do not blindly run kubeadm reset.' >&2
+  printf 'ERROR SUMMARY: stage="%s", line=%s, exit=%s. Send this summary and the original error before Cluster diagnostics.\n' \
+    "$CURRENT_STAGE" "$line" "$status" >&2
   exit "$status"
 }
 trap 'report_failure "$?" "$LINENO"' ERR
@@ -229,10 +235,8 @@ fi
 
 export KUBECONFIG=/etc/kubernetes/admin.conf
 CLUSTER_DIAGNOSTICS=true
-if [[ "$MODE" == repair ]]; then
-  log 'Wait for the existing API server'
-  wait_for_api
-fi
+log 'Wait for a stable API server before installing cluster networking'
+wait_for_api
 
 log 'Configure kubeconfig for the invoking user'
 KUBE_USER="${SUDO_USER:-root}"
@@ -241,27 +245,8 @@ KUBE_GROUP="$(id -gn "$KUBE_USER")"
 install -d -m 0700 -o "$KUBE_USER" -g "$KUBE_GROUP" "$KUBE_HOME/.kube"
 install -m 0600 -o "$KUBE_USER" -g "$KUBE_GROUP" /etc/kubernetes/admin.conf "$KUBE_HOME/.kube/config"
 
-log "Install Cilium $CILIUM_VERSION (kube-proxy replacement)"
-if [[ "$MODE" == repair ]]; then
-  # Keep the existing endpoint, pod CIDR, and other release-specific settings.
-  helm status cilium --namespace kube-system >/dev/null
-  helm upgrade cilium cilium/cilium \
-    --version "$CILIUM_VERSION" --namespace kube-system \
-    --reuse-values --wait --timeout 10m
-else
-  helm upgrade --install cilium cilium/cilium \
-    --version "$CILIUM_VERSION" \
-    --namespace kube-system \
-    --wait --timeout 10m \
-    --set kubeProxyReplacement=true \
-    --set k8sServiceHost="$CONTROL_PLANE_IP" \
-    --set k8sServicePort=6443 \
-    --set operator.replicas=1 \
-    --set ipam.mode=cluster-pool \
-    --set-json "ipam.operator.clusterPoolIPv4PodCIDRList=[\"$POD_CIDR\"]"
-fi
-
 if [[ "${ALLOW_CONTROL_PLANE_WORKLOADS:-false}" == true ]]; then
+  log 'Allow temporary workloads on the single control-plane node'
   node="$(kubectl get nodes -o name)"
   [[ "$node" == node/* && "$node" != *$'\n'* ]] || {
     echo 'ALLOW_CONTROL_PLANE_WORKLOADS=true requires a single-node cluster.' >&2
@@ -273,6 +258,28 @@ if [[ "${ALLOW_CONTROL_PLANE_WORKLOADS:-false}" == true ]]; then
   fi
 fi
 
+# Apply the CNI first; validate readiness after CRI-O has loaded its config.
+log "Install Cilium $CILIUM_VERSION (kube-proxy replacement)"
+if [[ "$MODE" == repair ]]; then
+  # Keep the existing endpoint, pod CIDR, and other release-specific settings.
+  helm status cilium --namespace kube-system >/dev/null
+  helm upgrade cilium cilium/cilium \
+    --version "$CILIUM_VERSION" --namespace kube-system \
+    --reuse-values --timeout 10m
+else
+  helm upgrade --install cilium cilium/cilium \
+    --version "$CILIUM_VERSION" \
+    --namespace kube-system \
+    --timeout 10m \
+    --set kubeProxyReplacement=true \
+    --set k8sServiceHost="$CONTROL_PLANE_IP" \
+    --set k8sServicePort=6443 \
+    --set operator.replicas=1 \
+    --set ipam.mode=cluster-pool \
+    --set-json "ipam.operator.clusterPoolIPv4PodCIDRList=[\"$POD_CIDR\"]"
+fi
+
+
 refresh_cni_runtime
 
 log 'Worker join command (run on workers with sudo and append --cri-socket unix:///var/run/crio/crio.sock)'
@@ -280,6 +287,7 @@ kubeadm token create --print-join-command
 
 log 'Validate Cilium, node readiness, and CoreDNS'
 kubectl -n kube-system rollout status daemonset/cilium --timeout=300s
+kubectl -n kube-system rollout status deployment/cilium-operator --timeout=300s
 kubectl wait --for=condition=Ready node --all --timeout=300s
 kubectl -n kube-system rollout status deployment/coredns --timeout=300s
 kubectl get nodes -o wide
